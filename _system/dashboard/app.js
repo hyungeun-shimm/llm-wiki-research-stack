@@ -21,7 +21,7 @@
   const helpCopy = {
     connectWorkspace: {
       title: "Connect Workspace",
-      body: "Connects the browser dashboard to the root workspace folder, not to one project file. Choose your repository root so the dashboard can scan projects/, papers/, sources/, and wiki/ directly.",
+      body: "Connects the browser dashboard to the root workspace folder, not to one project file. Choose your local repo root (the directory containing projects/, papers/, sources/, and wiki/) so the dashboard can scan it directly.",
     },
     refreshScan: {
       title: "Refresh Scan",
@@ -1328,7 +1328,7 @@ After writing, run: python3 scripts/build_dashboard.py`;
     keywordLabel.textContent = "Topic keywords (comma-separated)";
     const keywordInput = el("input", "select-input");
     keywordInput.type = "text";
-    keywordInput.placeholder = "e.g. LTP, LTD, NMDA, plasticity, receptor";
+    keywordInput.placeholder = "e.g. cerebellum, LTD, timing, mGluR1, PKC";
     keywordLabel.append(keywordInput);
     keywordRow.append(keywordLabel);
 
@@ -1570,7 +1570,7 @@ After writing, run: python3 scripts/build_dashboard.py`;
           <button id="new-project-copy" class="copy-button" type="button">Copy mkdir command</button>
         </div>
       </div>
-      <pre id="new-project-output" class="run-output" data-state="">Enter a slug and type, then click Create Project. (ex., synaptic-plasticity-review)</pre>
+      <pre id="new-project-output" class="run-output" data-state="">Enter a slug and type, then click Create Project. (ex., cerebellar-tbi-review)</pre>
     `;
     commandRoot.append(newProjectCard);
     commandRoot.append(card);
@@ -2153,7 +2153,7 @@ After writing, run: python3 scripts/build_dashboard.py`;
       const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
       if (!terms.length) {
         count.textContent = `${index.length} searchable page(s)`;
-        results.append(emptyState("Search the saved wiki. Try topic names, author names, methods, or keywords."));
+        results.append(emptyState("Search the saved wiki. Try VOR, Purkinje, CGRP, plasticity, vestibular, or TBI."));
         return;
       }
       const matches = index
@@ -3127,20 +3127,23 @@ ${yearLine}`.trim();
 
       const counts = el("div", "counts-grid");
       [
-        ["candidate jsons", project.counts.candidate_jsons],
-        ["triage reports", project.counts.triage_reports],
-        ["approval boards", project.counts.approval_boards || 0],
-        ["draft files", project.counts.staged_drafts + project.counts.final_drafts],
-        ["claim logs", project.counts.claim_logs],
-        ["candidate batches", project.counts.candidate_batches],
-        ["notes", project.counts.notes],
-        ["figure rows", project.counts.planned_figures || 0],
-        ["data updates", project.counts.data_updates || 0],
-        ["critique/logs", project.counts.critique_reports || 0],
-      ].forEach(([label, value]) => {
-        const chip = el("div", "count-chip");
+        ["candidate jsons", project.counts.candidate_jsons, "candidate_jsons"],
+        ["triage reports", project.counts.triage_reports, "triage_reports"],
+        ["approval boards", project.counts.approval_boards || 0, "approval_boards"],
+        ["draft files", project.counts.staged_drafts + project.counts.final_drafts, "draft_files"],
+        ["claim logs", project.counts.claim_logs, "claim_logs"],
+        ["candidate batches", project.counts.candidate_batches, "candidate_batches"],
+        ["notes", project.counts.notes, "notes"],
+        ["figure rows", project.counts.planned_figures || 0, "figure_rows"],
+        ["data updates", project.counts.data_updates || 0, "data_updates"],
+        ["critique/logs", project.counts.critique_reports || 0, "critique_reports"],
+      ].forEach(([label, value, bucketKey]) => {
+        const chip = el("button", "count-chip count-chip--button");
+        chip.type = "button";
+        chip.dataset.bucket = bucketKey;
         chip.append(text(el("strong"), String(value)));
         chip.append(text(el("span"), label));
+        chip.addEventListener("click", () => openBucketFiles(project, bucketKey, label));
         counts.append(chip);
       });
       card.append(counts);
@@ -3942,5 +3945,1656 @@ ${yearLine}`.trim();
     body.append(hint);
 
     body.append(output);
+  }
+
+  /* ──────────────────────────────────────────────────────────────────
+     ADMIN MODE (PIN-protected) + PROJECT MANAGERS
+     ────────────────────────────────────────────────────────────────── */
+
+  // Admin session state lives in sessionStorage so it ends when the tab closes.
+  const ADMIN_PIN_KEY = "dashboard.adminPin";       // PIN cached for this tab session only
+  const ADMIN_UNLOCKED_KEY = "dashboard.adminOn";   // "1" while unlocked in this tab
+
+  function adminPin() {
+    return sessionStorage.getItem(ADMIN_PIN_KEY) || "";
+  }
+  function isAdminUnlocked() {
+    return sessionStorage.getItem(ADMIN_UNLOCKED_KEY) === "1" && !!adminPin();
+  }
+  function lockAdmin() {
+    sessionStorage.removeItem(ADMIN_PIN_KEY);
+    sessionStorage.removeItem(ADMIN_UNLOCKED_KEY);
+    applyAdminMode();
+  }
+  function unlockAdmin(pin) {
+    sessionStorage.setItem(ADMIN_PIN_KEY, pin);
+    sessionStorage.setItem(ADMIN_UNLOCKED_KEY, "1");
+    applyAdminMode();
+  }
+  function applyAdminMode() {
+    const on = isAdminUnlocked();
+    document.body.classList.toggle("admin-mode", on);
+    const btn = byId("admin-toggle");
+    if (btn) {
+      btn.textContent = on ? "🔓 Admin: On" : "🔒 Admin: Off";
+      btn.classList.toggle("admin-on", on);
+    }
+  }
+
+  async function callApi(action_id, params, project_slug) {
+    const resp = await fetch(apiUrl("/api/run"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action_id, project_slug: project_slug || null, params: params || {} }),
+    });
+    let out;
+    try { out = await resp.json(); }
+    catch (err) { throw new Error("Server returned non-JSON response"); }
+    if (!out.ok) throw new Error(out.stderr || "Request failed");
+    return out;
+  }
+
+  async function getAdminStatus() {
+    const out = await callApi("admin-status", {});
+    try { return JSON.parse(out.stdout); }
+    catch (e) { return { configured: false, recovery_email_masked: "", smtp_configured: false }; }
+  }
+
+  (function wireAdminToggle() {
+    const btn = byId("admin-toggle");
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+      if (isAdminUnlocked()) {
+        lockAdmin();
+        return;
+      }
+      let status;
+      try { status = await getAdminStatus(); }
+      catch (err) {
+        alert("Cannot reach the dashboard server. Start it with:\n  python3 scripts/dashboard_server.py --port 8765");
+        return;
+      }
+      if (status.configured) {
+        openAdminUnlockModal(status);
+      } else {
+        openAdminSetupModal();
+      }
+    });
+    applyAdminMode();
+  })();
+
+  function makeOverlay(id, className) {
+    const old = byId(id);
+    if (old) old.remove();
+    const overlay = el("div", className + " admin-modal-overlay");
+    overlay.id = id;
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+    return overlay;
+  }
+
+  function openAdminSetupModal() {
+    const overlay = makeOverlay("admin-setup", "manager-editor-overlay");
+    const modal = el("div", "manager-editor-modal");
+    overlay.append(modal);
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), "Set up admin PIN"));
+    const close = text(el("button", "manager-editor-close"), "×");
+    close.type = "button";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(close);
+    modal.append(head);
+
+    modal.append(text(el("p", "admin-help"),
+      "Choose a 4–8 digit PIN to unlock admin mode (required to edit project managers). " +
+      "Provide a recovery email so you can reset the PIN later."));
+
+    const pinIn = document.createElement("input");
+    pinIn.type = "password";
+    pinIn.inputMode = "numeric";
+    pinIn.placeholder = "PIN (4–8 digits)";
+    pinIn.maxLength = 8;
+    const pinIn2 = document.createElement("input");
+    pinIn2.type = "password";
+    pinIn2.inputMode = "numeric";
+    pinIn2.placeholder = "Confirm PIN";
+    pinIn2.maxLength = 8;
+    const emailIn = document.createElement("input");
+    emailIn.type = "email";
+    emailIn.placeholder = "Recovery email";
+
+    const fieldWrap = el("div", "admin-field-wrap");
+    [pinIn, pinIn2, emailIn].forEach((inp) => fieldWrap.append(inp));
+    modal.append(fieldWrap);
+
+    const status = el("p", "manager-editor-status");
+    modal.append(status);
+
+    const actions = el("div", "manager-editor-actions");
+    const cancel = text(el("button", "manager-editor-cancel"), "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => overlay.remove());
+    const save = text(el("button", "manager-editor-save"), "Save & Unlock");
+    save.type = "button";
+    save.addEventListener("click", async () => {
+      const pin = pinIn.value.trim();
+      if (!/^\d{4,8}$/.test(pin)) { status.textContent = "PIN must be 4–8 digits."; return; }
+      if (pin !== pinIn2.value.trim()) { status.textContent = "PIN confirmation does not match."; return; }
+      const email = emailIn.value.trim();
+      if (!/^\S+@\S+\.\S+$/.test(email)) { status.textContent = "Invalid recovery email."; return; }
+      save.disabled = true;
+      status.textContent = "Saving...";
+      try {
+        await callApi("admin-setup", { pin, recovery_email: email });
+        unlockAdmin(pin);
+        overlay.remove();
+      } catch (err) {
+        status.textContent = "Setup failed: " + err.message;
+        save.disabled = false;
+      }
+    });
+    actions.append(cancel, save);
+    modal.append(actions);
+    document.body.append(overlay);
+    pinIn.focus();
+  }
+
+  function openAdminUnlockModal(status) {
+    const overlay = makeOverlay("admin-unlock", "manager-editor-overlay");
+    const modal = el("div", "manager-editor-modal");
+    overlay.append(modal);
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), "Enter admin PIN"));
+    const close = text(el("button", "manager-editor-close"), "×");
+    close.type = "button";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(close);
+    modal.append(head);
+
+    const pinIn = document.createElement("input");
+    pinIn.type = "password";
+    pinIn.inputMode = "numeric";
+    pinIn.placeholder = "PIN";
+    pinIn.maxLength = 8;
+    modal.append(pinIn);
+
+    const statusLine = el("p", "manager-editor-status");
+    modal.append(statusLine);
+
+    const forgot = el("p", "admin-forgot-line");
+    const forgotLink = text(el("a", "admin-forgot-link"), "Forgot PIN?");
+    forgotLink.href = "#";
+    forgotLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      overlay.remove();
+      openForgotPinModal(status);
+    });
+    forgot.append(forgotLink);
+    modal.append(forgot);
+
+    const actions = el("div", "manager-editor-actions");
+    const cancel = text(el("button", "manager-editor-cancel"), "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => overlay.remove());
+    const ok = text(el("button", "manager-editor-save"), "Unlock");
+    ok.type = "button";
+    async function tryUnlock() {
+      const pin = pinIn.value.trim();
+      if (!/^\d{4,8}$/.test(pin)) { statusLine.textContent = "PIN must be 4–8 digits."; return; }
+      ok.disabled = true;
+      statusLine.textContent = "Verifying...";
+      try {
+        await callApi("admin-verify", { pin });
+        unlockAdmin(pin);
+        overlay.remove();
+      } catch (err) {
+        statusLine.textContent = err.message;
+        ok.disabled = false;
+      }
+    }
+    ok.addEventListener("click", tryUnlock);
+    pinIn.addEventListener("keydown", (e) => { if (e.key === "Enter") tryUnlock(); });
+    actions.append(cancel, ok);
+    modal.append(actions);
+    document.body.append(overlay);
+    pinIn.focus();
+  }
+
+  function openForgotPinModal(status) {
+    const overlay = makeOverlay("admin-forgot", "manager-editor-overlay");
+    const modal = el("div", "manager-editor-modal");
+    overlay.append(modal);
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), "Reset admin PIN"));
+    const close = text(el("button", "manager-editor-close"), "×");
+    close.type = "button";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(close);
+    modal.append(head);
+
+    const helpText = `A 6-digit code will be sent to your recovery email (${status.recovery_email_masked || "configured address"}). ` +
+      (status.smtp_configured
+        ? "Email delivery is configured."
+        : "SMTP is not configured: the code will also be printed to the dashboard-server terminal as a fallback.");
+    modal.append(text(el("p", "admin-help"), helpText));
+
+    const emailIn = document.createElement("input");
+    emailIn.type = "email";
+    emailIn.placeholder = "Confirm your recovery email";
+    modal.append(emailIn);
+
+    const sendBtn = text(el("button", "manager-editor-add"), "Send reset code");
+    sendBtn.type = "button";
+    modal.append(sendBtn);
+
+    const codeWrap = el("div", "admin-reset-stage");
+    codeWrap.style.display = "none";
+    const codeIn = document.createElement("input");
+    codeIn.type = "text";
+    codeIn.inputMode = "numeric";
+    codeIn.placeholder = "6-digit code";
+    codeIn.maxLength = 6;
+    const newPin = document.createElement("input");
+    newPin.type = "password";
+    newPin.inputMode = "numeric";
+    newPin.placeholder = "New PIN (4–8 digits)";
+    newPin.maxLength = 8;
+    const newPin2 = document.createElement("input");
+    newPin2.type = "password";
+    newPin2.inputMode = "numeric";
+    newPin2.placeholder = "Confirm new PIN";
+    newPin2.maxLength = 8;
+    [codeIn, newPin, newPin2].forEach((i) => codeWrap.append(i));
+    modal.append(codeWrap);
+
+    const statusLine = el("p", "manager-editor-status");
+    modal.append(statusLine);
+
+    sendBtn.addEventListener("click", async () => {
+      const email = emailIn.value.trim();
+      if (!/^\S+@\S+\.\S+$/.test(email)) { statusLine.textContent = "Enter a valid email."; return; }
+      sendBtn.disabled = true;
+      statusLine.textContent = "Sending...";
+      try {
+        const out = await callApi("admin-request-reset", { recovery_email: email });
+        let info = {};
+        try { info = JSON.parse(out.stdout); } catch {}
+        statusLine.textContent = info.message || "Reset code sent.";
+        codeWrap.style.display = "flex";
+        codeIn.focus();
+      } catch (err) {
+        statusLine.textContent = err.message;
+        sendBtn.disabled = false;
+      }
+    });
+
+    const actions = el("div", "manager-editor-actions");
+    const cancel = text(el("button", "manager-editor-cancel"), "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => overlay.remove());
+    const apply = text(el("button", "manager-editor-save"), "Reset PIN");
+    apply.type = "button";
+    apply.addEventListener("click", async () => {
+      const code = codeIn.value.trim();
+      const pin = newPin.value.trim();
+      if (!/^\d{6}$/.test(code)) { statusLine.textContent = "Code must be 6 digits."; return; }
+      if (!/^\d{4,8}$/.test(pin)) { statusLine.textContent = "New PIN must be 4–8 digits."; return; }
+      if (pin !== newPin2.value.trim()) { statusLine.textContent = "PIN confirmation does not match."; return; }
+      apply.disabled = true;
+      statusLine.textContent = "Resetting...";
+      try {
+        await callApi("admin-reset-pin", { code, new_pin: pin });
+        unlockAdmin(pin);
+        statusLine.textContent = "PIN reset. Admin mode unlocked.";
+        setTimeout(() => overlay.remove(), 600);
+      } catch (err) {
+        statusLine.textContent = err.message;
+        apply.disabled = false;
+      }
+    });
+    actions.append(cancel, apply);
+    modal.append(actions);
+    document.body.append(overlay);
+    emailIn.focus();
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
+      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+    ));
+  }
+
+  function closeManagerPopover() {
+    const existing = byId("manager-popover");
+    if (existing) existing.remove();
+    document.removeEventListener("mousedown", onPopoverOutside, true);
+    document.removeEventListener("keydown", onPopoverEsc, true);
+  }
+  function onPopoverOutside(e) {
+    const pop = byId("manager-popover");
+    if (pop && !pop.contains(e.target)) closeManagerPopover();
+  }
+  function onPopoverEsc(e) {
+    if (e.key === "Escape") closeManagerPopover();
+  }
+
+  function openManagerPopover(anchor, managers) {
+    closeManagerPopover();
+    const list = (managers || []).filter((m) => m && (m.name || m.email));
+    if (!list.length) return;
+    const pop = el("div", "manager-popover");
+    pop.id = "manager-popover";
+    pop.setAttribute("role", "dialog");
+
+    const header = el("div", "manager-pop-header");
+    header.append(text(el("strong"), `Managers (${list.length})`));
+    const closeBtn = text(el("button", "manager-pop-close", "×"), "×");
+    closeBtn.type = "button";
+    closeBtn.addEventListener("click", closeManagerPopover);
+    header.append(closeBtn);
+    pop.append(header);
+
+    const multi = list.length > 1;
+    let selectAllBox = null;
+    if (multi) {
+      const selRow = el("label", "manager-pop-row manager-pop-selectall");
+      selectAllBox = document.createElement("input");
+      selectAllBox.type = "checkbox";
+      selectAllBox.checked = true;
+      selRow.append(selectAllBox, text(el("span", "manager-pop-name"), "Select all"));
+      pop.append(selRow);
+    }
+
+    const checkboxes = [];
+    list.forEach((m, idx) => {
+      const row = el("label", "manager-pop-row");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      cb.dataset.email = m.email || "";
+      cb.dataset.name = m.name || "";
+      checkboxes.push(cb);
+      const name = el("span", "manager-pop-name");
+      name.textContent = m.name || m.email || `Manager ${idx + 1}`;
+      const mail = el("a", "manager-pop-email");
+      if (m.email) {
+        mail.href = `mailto:${encodeURIComponent(m.email)}`;
+        mail.textContent = m.email;
+      } else {
+        mail.textContent = "(no email on file)";
+        mail.classList.add("no-email");
+      }
+      mail.addEventListener("click", (e) => e.stopPropagation());
+      row.append(cb, name, mail);
+      pop.append(row);
+    });
+
+    if (selectAllBox) {
+      selectAllBox.addEventListener("change", () => {
+        checkboxes.forEach((cb) => { cb.checked = selectAllBox.checked; });
+      });
+      checkboxes.forEach((cb) => {
+        cb.addEventListener("change", () => {
+          selectAllBox.checked = checkboxes.every((c) => c.checked);
+        });
+      });
+    }
+
+    const actions = el("div", "manager-pop-actions");
+    const sendBtn = text(el("button", "manager-pop-send"),
+      multi ? "📧 Email selected managers" : "📧 Email this manager");
+    sendBtn.type = "button";
+    sendBtn.addEventListener("click", () => {
+      const picked = checkboxes
+        .filter((cb) => cb.checked && cb.dataset.email)
+        .map((cb) => cb.dataset.email);
+      if (!picked.length) {
+        alert("No managers with an email address are selected.");
+        return;
+      }
+      window.location.href = `mailto:${picked.join(",")}`;
+    });
+    actions.append(sendBtn);
+    pop.append(actions);
+
+    document.body.append(pop);
+    const rect = anchor.getBoundingClientRect();
+    const top = window.scrollY + rect.bottom + 6;
+    let left = window.scrollX + rect.right - pop.offsetWidth;
+    if (left < 8) left = 8;
+    pop.style.top = `${top}px`;
+    pop.style.left = `${left}px`;
+
+    setTimeout(() => {
+      document.addEventListener("mousedown", onPopoverOutside, true);
+      document.addEventListener("keydown", onPopoverEsc, true);
+    }, 0);
+  }
+
+  function buildManagerBadge(project) {
+    const wrap = el("div", "manager-badge-wrap");
+    const managers = Array.isArray(project.managers) ? project.managers : [];
+    if (managers.length === 0) {
+      const empty = el("span", "manager-empty", "No manager assigned");
+      wrap.append(empty);
+    } else {
+      const trigger = el("button", "manager-trigger");
+      trigger.type = "button";
+      trigger.title = "Click to view email addresses";
+      const labelNames = managers
+        .map((m) => m.name || m.email)
+        .filter(Boolean);
+      const label = labelNames.length <= 2
+        ? labelNames.join(", ")
+        : `${labelNames.slice(0, 2).join(", ")} +${labelNames.length - 2} more`;
+      trigger.append(text(el("span", "manager-icon"), "👤"));
+      trigger.append(text(el("span", "manager-names"), label));
+      trigger.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openManagerPopover(trigger, managers);
+      });
+      wrap.append(trigger);
+    }
+    const editBtn = el("button", "manager-edit-btn");
+    editBtn.type = "button";
+    editBtn.title = "Edit managers (admin mode)";
+    editBtn.textContent = "✎";
+    editBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!isAdminUnlocked()) {
+        alert("Admin mode is locked. Unlock it from the top bar first.");
+        return;
+      }
+      openManagerEditor(project);
+    });
+    wrap.append(editBtn);
+    return wrap;
+  }
+
+  function openManagerEditor(project) {
+    closeManagerPopover();
+    const existing = byId("manager-editor");
+    if (existing) existing.remove();
+
+    const overlay = el("div", "manager-editor-overlay");
+    overlay.id = "manager-editor";
+    const modal = el("div", "manager-editor-modal");
+    overlay.append(modal);
+
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), `Edit managers — ${project.title || project.slug}`));
+    const closeBtn = text(el("button", "manager-editor-close"), "×");
+    closeBtn.type = "button";
+    closeBtn.addEventListener("click", () => overlay.remove());
+    head.append(closeBtn);
+    modal.append(head);
+
+    const listWrap = el("div", "manager-editor-list");
+    modal.append(listWrap);
+
+    const rows = (Array.isArray(project.managers) ? project.managers : []).map((m) => ({
+      name: m.name || "",
+      email: m.email || "",
+    }));
+
+    function renderRows() {
+      listWrap.innerHTML = "";
+      rows.forEach((row, idx) => {
+        const r = el("div", "manager-editor-row");
+        const nameIn = document.createElement("input");
+        nameIn.type = "text";
+        nameIn.placeholder = "Name";
+        nameIn.value = row.name;
+        nameIn.addEventListener("input", () => { row.name = nameIn.value; });
+        const emailIn = document.createElement("input");
+        emailIn.type = "email";
+        emailIn.placeholder = "email@example.com";
+        emailIn.value = row.email;
+        emailIn.addEventListener("input", () => { row.email = emailIn.value; });
+        const del = text(el("button", "manager-editor-del"), "🗑");
+        del.type = "button";
+        del.title = "Remove";
+        del.addEventListener("click", () => {
+          rows.splice(idx, 1);
+          renderRows();
+        });
+        r.append(nameIn, emailIn, del);
+        listWrap.append(r);
+      });
+      if (rows.length === 0) {
+        listWrap.append(text(el("p", "manager-editor-empty"), "No managers assigned. Add one below."));
+      }
+    }
+    renderRows();
+
+    const addBtn = text(el("button", "manager-editor-add"), "+ Add manager");
+    addBtn.type = "button";
+    addBtn.addEventListener("click", () => {
+      rows.push({ name: "", email: "" });
+      renderRows();
+    });
+    modal.append(addBtn);
+
+    const status = el("p", "manager-editor-status");
+    modal.append(status);
+
+    const actions = el("div", "manager-editor-actions");
+    const cancel = text(el("button", "manager-editor-cancel"), "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => overlay.remove());
+    const save = text(el("button", "manager-editor-save"), "Save");
+    save.type = "button";
+    save.addEventListener("click", async () => {
+      if (!isAdminUnlocked()) {
+        status.textContent = "Admin mode is locked. Unlock from the top bar.";
+        return;
+      }
+      const cleaned = rows
+        .map((r) => ({ name: (r.name || "").trim(), email: (r.email || "").trim() }))
+        .filter((r) => r.name || r.email);
+      for (const r of cleaned) {
+        if (r.email && !/^\S+@\S+\.\S+$/.test(r.email)) {
+          status.textContent = `Invalid email: ${r.email}`;
+          return;
+        }
+      }
+      save.disabled = true;
+      status.textContent = "Saving...";
+      try {
+        await callApi("update-managers", { managers: cleaned, admin_pin: adminPin() }, project.slug);
+        status.textContent = "Saved. Reloading...";
+        setTimeout(() => window.location.reload(), 400);
+      } catch (err) {
+        status.textContent = "Save failed: " + err.message;
+        save.disabled = false;
+      }
+    });
+    actions.append(cancel, save);
+    modal.append(actions);
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) overlay.remove();
+    });
+    document.body.append(overlay);
+  }
+
+  // Inject manager badges + "Add data update" button into project cards.
+  (function decorateProjectCards() {
+    if (!data || !Array.isArray(data.projects)) return;
+    const projectRoot = byId("project-cards");
+    if (!projectRoot) return;
+    const cards = projectRoot.querySelectorAll(".project-card");
+    cards.forEach((card, idx) => {
+      const project = data.projects[idx];
+      if (!project) return;
+
+      const dataBtnRow = el("div", "card-actions-row");
+      const addData = text(el("button", "card-action-btn add-data-btn"), "+ Data update");
+      addData.type = "button";
+      addData.title = "Record a new data update for this project";
+      addData.addEventListener("click", () => openDataUpdateModal(project));
+      dataBtnRow.append(addData);
+
+      const renumberBtn = text(el("button", "card-action-btn"), "Renumber figures");
+      renumberBtn.type = "button";
+      renumberBtn.title = "Swap or shift figure numbers across all data-updates";
+      renumberBtn.addEventListener("click", () => openRenumberModal(project));
+      dataBtnRow.append(renumberBtn);
+
+      const archiveBtn = text(el("button", "card-action-btn"), "📦 Archive");
+      archiveBtn.type = "button";
+      archiveBtn.title = "View archived data files (restore-able)";
+      archiveBtn.addEventListener("click", () => openArchiveModal(project));
+      dataBtnRow.append(archiveBtn);
+
+      const meetingBtn = text(el("button", "card-action-btn add-meeting-btn"), "+ Meeting");
+      meetingBtn.type = "button";
+      meetingBtn.title = "Schedule a new meeting (ICS + macOS Calendar)";
+      meetingBtn.addEventListener("click", () => openMeetingModal(project));
+      dataBtnRow.append(meetingBtn);
+
+      const meetingsListBtn = text(el("button", "card-action-btn"), "Meetings");
+      meetingsListBtn.type = "button";
+      meetingsListBtn.title = "View all meetings for this project";
+      meetingsListBtn.addEventListener("click", () => openMeetingsListModal(project));
+      dataBtnRow.append(meetingsListBtn);
+
+      const syncDataBtn = text(el("button", "card-action-btn sync-btn"), "🤖 Sync data");
+      syncDataBtn.type = "button";
+      syncDataBtn.title = "Launch local LLM to propose figure-plan / Decision_Log updates from recent data-updates";
+      syncDataBtn.addEventListener("click", () => launchLocalSync(project, "local-data-sync"));
+      dataBtnRow.append(syncDataBtn);
+
+      const syncMeetBtn = text(el("button", "card-action-btn sync-btn"), "🤖 Sync meetings");
+      syncMeetBtn.type = "button";
+      syncMeetBtn.title = "Launch local LLM to propose updates from recent meeting notes";
+      syncMeetBtn.addEventListener("click", () => launchLocalSync(project, "local-meeting-sync"));
+      dataBtnRow.append(syncMeetBtn);
+
+      const proposalsBtn = text(el("button", "card-action-btn"), "Proposals");
+      proposalsBtn.type = "button";
+      proposalsBtn.title = "Review and apply LLM sync proposals";
+      proposalsBtn.addEventListener("click", () => openProposalsModal(project));
+      dataBtnRow.append(proposalsBtn);
+
+      card.append(dataBtnRow);
+
+      const badge = buildManagerBadge(project);
+      card.classList.add("project-card--with-manager");
+      card.append(badge);
+    });
+  })();
+
+  /* ──────────────────────────────────────────────────────────────────
+     COUNT-CHIP FILE LIST POPUP
+     ────────────────────────────────────────────────────────────────── */
+
+  async function openBucketFiles(project, bucketKey, label) {
+    const overlay = makeOverlay("bucket-files", "manager-editor-overlay");
+    const modal = el("div", "manager-editor-modal bucket-modal");
+    overlay.append(modal);
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), `${label} — ${project.title || project.slug}`));
+    const close = text(el("button", "manager-editor-close"), "×");
+    close.type = "button";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(close);
+    modal.append(head);
+
+    const status = el("p", "manager-editor-status", "Loading...");
+    modal.append(status);
+    const listWrap = el("div", "bucket-file-list");
+    modal.append(listWrap);
+
+    document.body.append(overlay);
+    try {
+      const out = await callApi("list-bucket-files", { bucket: bucketKey }, project.slug);
+      const result = JSON.parse(out.stdout);
+      status.textContent = result.items.length
+        ? `${result.items.length} item${result.items.length === 1 ? "" : "s"}`
+        : "No files yet for this bucket.";
+      result.items.forEach((it) => {
+        const row = el("div", "bucket-file-row");
+        const icon = el("span", "bucket-file-icon", it.kind === "dir" ? "📁" : "📄");
+        const main = el("button", "bucket-file-main bucket-file-open");
+        main.type = "button";
+        main.append(text(el("strong"), it.name));
+        const metaLine = it.kind === "dir"
+          ? `${it.file_count} files · ${it.mtime}`
+          : (it.mtime || "");
+        main.append(text(el("span", "bucket-file-meta"), metaLine));
+        main.addEventListener("click", async () => {
+          main.disabled = true;
+          try { await callApi("open-relative-path", { rel_path: it.rel_path }); }
+          catch (err) { alert("Open failed: " + err.message); main.disabled = false; }
+        });
+        const right = el("div", "bucket-file-right");
+        const path = el("code", "bucket-file-path", it.rel_path);
+        right.append(path);
+        if (bucketKey === "data_updates") {
+          const reassignBtn = text(el("button", "bucket-file-reassign"), "Reassign…");
+          reassignBtn.type = "button";
+          reassignBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            openReassignModal(project, it.rel_path, it.name);
+          });
+          right.append(reassignBtn);
+        }
+        row.append(icon, main, right);
+        listWrap.append(row);
+      });
+    } catch (err) {
+      status.textContent = "Failed to load: " + err.message;
+    }
+  }
+
+  function openReassignModal(project, updateRelPath, updateName) {
+    const overlay = makeOverlay("reassign-modal", "manager-editor-overlay");
+    const modal = el("div", "manager-editor-modal");
+    overlay.append(modal);
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), `Reassign — ${updateName}`));
+    const close = text(el("button", "manager-editor-close"), "×");
+    close.type = "button";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(close);
+    modal.append(head);
+
+    modal.append(text(el("p", "admin-help"),
+      "Change the figure/panel assignment for this data update. The actual data file in LLM_project_manager/ will be renamed to match the new tag, and the change will be appended to CHANGELOG.md."));
+
+    const fields = el("div", "du-fields-wrap");
+    function fld(label, ph) {
+      const w = el("label", "du-field");
+      w.append(text(el("span", "du-field-label"), label));
+      const i = document.createElement("input");
+      i.type = "text"; i.placeholder = ph || "";
+      w.append(i);
+      return { wrap: w, input: i };
+    }
+    const figF = fld("New figure (blank = unspecified)", "Fig 2");
+    const panelF = fld("New panel (optional)", "A");
+    const reasonF = fld("Reason (recorded in CHANGELOG)", "merged with new control panel");
+    [figF, panelF, reasonF].forEach(({ wrap }) => fields.append(wrap));
+    modal.append(fields);
+
+    const statusLine = el("p", "manager-editor-status");
+    modal.append(statusLine);
+
+    const actions = el("div", "manager-editor-actions");
+    const cancel = text(el("button", "manager-editor-cancel"), "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => overlay.remove());
+    const apply = text(el("button", "manager-editor-save"), "Reassign");
+    apply.type = "button";
+    apply.addEventListener("click", async () => {
+      const newFig = figF.input.value.trim();
+      if (!newFig && !confirm("No figure specified — will tag as 'unspecified'. Continue?")) return;
+      apply.disabled = true;
+      statusLine.textContent = "Reassigning...";
+      try {
+        const out = await callApi("reassign-data-update", {
+          update_rel_path: updateRelPath,
+          new_figure: newFig,
+          new_panel: panelF.input.value.trim(),
+          reason: reasonF.input.value.trim(),
+        }, project.slug);
+        let info = {};
+        try { info = JSON.parse(out.stdout); } catch {}
+        statusLine.textContent = "Reassigned." + (info.renamed ? " File renamed." : "");
+        setTimeout(() => { overlay.remove(); window.location.reload(); }, 600);
+      } catch (err) {
+        statusLine.textContent = "Reassign failed: " + err.message;
+        apply.disabled = false;
+      }
+    });
+    actions.append(cancel, apply);
+    modal.append(actions);
+    document.body.append(overlay);
+    figF.input.focus();
+  }
+
+  /* ──────────────────────────────────────────────────────────────────
+     ADD DATA UPDATE MODAL
+     ────────────────────────────────────────────────────────────────── */
+
+  const STATUS_OPTIONS = [
+    "planned", "in_progress", "data_collected", "analyzed",
+    "drafted", "complete", "dropped",
+  ];
+
+  async function openDataUpdateModal(project) {
+    const overlay = makeOverlay("data-update-modal", "manager-editor-overlay");
+    const modal = el("div", "manager-editor-modal data-update-modal");
+    overlay.append(modal);
+
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), `+ Data update — ${project.title || project.slug}`));
+    const close = text(el("button", "manager-editor-close"), "×");
+    close.type = "button";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(close);
+    modal.append(head);
+
+    // Mode selector
+    const modeRow = el("div", "du-mode-row");
+    const modeNew = el("label", "du-mode-opt");
+    const modeNewIn = document.createElement("input");
+    modeNewIn.type = "radio"; modeNewIn.name = "du-mode"; modeNewIn.value = "new"; modeNewIn.checked = true;
+    modeNew.append(modeNewIn, text(el("span"), "New data (new figure/panel)"));
+    const modeExisting = el("label", "du-mode-opt");
+    const modeExistingIn = document.createElement("input");
+    modeExistingIn.type = "radio"; modeExistingIn.name = "du-mode"; modeExistingIn.value = "existing";
+    modeExisting.append(modeExistingIn, text(el("span"), "Adding to existing data"));
+    modeRow.append(modeNew, modeExisting);
+    modal.append(modeRow);
+
+    // Figure picker (existing) — hidden by default
+    const pickerWrap = el("div", "du-picker-wrap");
+    pickerWrap.style.display = "none";
+    const pickerLabel = text(el("label", "du-field-label"), "Pick a figure/panel:");
+    const pickerSelect = document.createElement("select");
+    pickerSelect.className = "du-picker-select";
+    pickerWrap.append(pickerLabel, pickerSelect);
+    modal.append(pickerWrap);
+
+    // Form fields
+    const fieldsWrap = el("div", "du-fields-wrap");
+    function field(label, placeholder, multiline) {
+      const wrap = el("label", "du-field");
+      wrap.append(text(el("span", "du-field-label"), label));
+      const input = multiline ? document.createElement("textarea") : document.createElement("input");
+      input.placeholder = placeholder || "";
+      if (multiline) input.rows = 3;
+      else input.type = "text";
+      wrap.append(input);
+      return { wrap, input };
+    }
+    const figureF = field("Figure (e.g., Fig 2)", "Fig 2");
+    const panelF = field("Panel (optional, e.g., A)", "A");
+    const statusF = (function () {
+      const wrap = el("label", "du-field");
+      wrap.append(text(el("span", "du-field-label"), "Status update"));
+      const sel = document.createElement("select");
+      const blank = document.createElement("option");
+      blank.value = ""; blank.textContent = "(no change)";
+      sel.append(blank);
+      STATUS_OPTIONS.forEach((s) => {
+        const o = document.createElement("option");
+        o.value = s; o.textContent = s;
+        sel.append(o);
+      });
+      wrap.append(sel);
+      return { wrap, input: sel };
+    })();
+    // Brief description (required — drives the canonical filename)
+    const briefF = field("Brief description (3–6 words — used in the filename)", "e.g., wt-vs-ko-baseline");
+    // Source file picker (replaces text path input)
+    const pathWrap = el("div", "du-field");
+    pathWrap.append(text(el("span", "du-field-label"), "Data file (moved into LLM_project_manager/)"));
+    const pathRow = el("div", "du-path-row");
+    const pathField = document.createElement("input");
+    pathField.type = "text";
+    pathField.placeholder = project.gdrive_path
+      ? `${project.gdrive_path.replace(/\/$/, "")}/LLM_project_manager/...`
+      : "(Set Google Drive path first — see notice below)";
+    pathField.readOnly = true;
+    const browseBtn = text(el("button", "du-browse-btn"), "📂 Browse…");
+    browseBtn.type = "button";
+    const clearBtn = text(el("button", "du-clear-btn"), "Clear");
+    clearBtn.type = "button";
+    clearBtn.addEventListener("click", () => { pathField.value = ""; });
+    pathRow.append(pathField, browseBtn, clearBtn);
+    pathWrap.append(pathRow);
+    const pathF = { wrap: pathWrap, input: pathField };
+    // Inline gdrive_path setup (shown only when missing)
+    if (!project.gdrive_path) {
+      const setupNotice = el("div", "du-gdrive-notice");
+      setupNotice.append(text(el("span"), "⚠️ No Google Drive path configured for this project. "));
+      const setupBtn = text(el("button", "du-setup-btn"), "Set Google Drive path…");
+      setupBtn.type = "button";
+      setupBtn.addEventListener("click", async () => {
+        setupBtn.disabled = true;
+        try {
+          const out = await callApi("pick-data-path", { kind: "folder" });
+          const info = JSON.parse(out.stdout);
+          if (info.cancelled) { setupBtn.disabled = false; return; }
+          await callApi("set-project-gdrive-path", { gdrive_path: info.path }, project.slug);
+          setupNotice.remove();
+          project.gdrive_path = info.path;
+          pathField.placeholder = `${info.path.replace(/\/$/, "")}/LLM_project_manager/...`;
+        } catch (err) {
+          alert("Setup failed: " + err.message);
+          setupBtn.disabled = false;
+        }
+      });
+      setupNotice.append(setupBtn);
+      pathWrap.append(setupNotice);
+    }
+    browseBtn.addEventListener("click", async () => {
+      browseBtn.disabled = true;
+      try {
+        const out = await callApi("pick-data-path", { kind: "file" }, project.slug);
+        const info = JSON.parse(out.stdout);
+        if (!info.cancelled) pathField.value = info.path;
+      } catch (err) {
+        alert("Picker failed: " + err.message);
+      } finally {
+        browseBtn.disabled = false;
+      }
+    });
+
+    const legendF = field("Brief legend (1–3 sentences)", "What this panel shows", true);
+    const changedF = field("What changed in this update", "New data / analysis / interpretation", true);
+    const interpF = field("Current interpretation", "What the data support / do not support", true);
+    const concernsF = field("Concerns or failure modes", "Technical issues, alt explanations, reviewer concerns", true);
+    const nextF = field("Next step", "Concrete next action, or 'None'", true);
+
+    [figureF, panelF, briefF, pathF, statusF, legendF, changedF, interpF, concernsF, nextF]
+      .forEach(({ wrap }) => fieldsWrap.append(wrap));
+    modal.append(fieldsWrap);
+
+    const statusLine = el("p", "manager-editor-status");
+    modal.append(statusLine);
+
+    const actions = el("div", "manager-editor-actions");
+    const cancel = text(el("button", "manager-editor-cancel"), "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => overlay.remove());
+    const save = text(el("button", "manager-editor-save"), "Save data update");
+    save.type = "button";
+    actions.append(cancel, save);
+    modal.append(actions);
+
+    // Fetch figures / existing updates for "existing" mode
+    let figuresCache = null;
+    let selectedExistingUpdateRel = "";
+    async function ensureFigures() {
+      if (figuresCache) return figuresCache;
+      const out = await callApi("list-project-figures", {}, project.slug);
+      figuresCache = JSON.parse(out.stdout);
+      return figuresCache;
+    }
+
+    async function populatePicker() {
+      pickerSelect.innerHTML = "";
+      const blank = document.createElement("option");
+      blank.value = ""; blank.textContent = "— select an existing data update to add n+ data —";
+      pickerSelect.append(blank);
+      try {
+        const info = await ensureFigures();
+        if (info.gdrive_path && !pathF.input.placeholder.includes(info.gdrive_path)) {
+          pathF.input.placeholder = `${info.gdrive_path.replace(/\/$/, "")}/LLM_project_manager/...`;
+        }
+        const updates = info.updates || [];
+        if (updates.length === 0) {
+          const opt = document.createElement("option");
+          opt.value = ""; opt.disabled = true;
+          opt.textContent = "(no existing data-updates yet — switch to 'New data')";
+          pickerSelect.append(opt);
+          return;
+        }
+        updates.forEach((u, i) => {
+          const fp = (u.figure || "") + (u.panel ? " " + u.panel : "") || "(unspecified)";
+          const opt = document.createElement("option");
+          opt.value = String(i);
+          opt.dataset.rel = u.rel_path;
+          opt.dataset.figure = u.figure || "";
+          opt.dataset.panel = u.panel || "";
+          opt.textContent = `${u.name}  —  ${fp}${u.status ? " [" + u.status + "]" : ""}`;
+          pickerSelect.append(opt);
+        });
+      } catch (err) {
+        const opt = document.createElement("option");
+        opt.disabled = true; opt.textContent = "Failed to load: " + err.message;
+        pickerSelect.append(opt);
+      }
+    }
+
+    pickerSelect.addEventListener("change", () => {
+      const opt = pickerSelect.selectedOptions[0];
+      if (!opt) { selectedExistingUpdateRel = ""; return; }
+      selectedExistingUpdateRel = opt.dataset.rel || "";
+      figureF.input.value = opt.dataset.figure || "";
+      panelF.input.value = opt.dataset.panel || "";
+    });
+
+    modeNewIn.addEventListener("change", () => {
+      pickerWrap.style.display = "none";
+    });
+    modeExistingIn.addEventListener("change", async () => {
+      pickerWrap.style.display = "block";
+      await populatePicker();
+    });
+
+    save.addEventListener("click", async () => {
+      const figure = figureF.input.value.trim();
+      const brief = briefF.input.value.trim();
+      const isExisting = modeExistingIn.checked;
+      if (!brief) { statusLine.textContent = "Brief description is required."; return; }
+      if (!figure && !isExisting) {
+        // figure can be empty → tagged unspecified; warn but allow
+        if (!confirm("No figure assigned — file will be tagged 'unspecified'. Continue?")) return;
+      }
+      if (isExisting && !selectedExistingUpdateRel) {
+        statusLine.textContent = "Pick an existing data-update from the dropdown.";
+        return;
+      }
+      save.disabled = true;
+      statusLine.textContent = "Saving...";
+      try {
+        const out = await callApi("add-data-update", {
+          mode: isExisting ? "existing" : "new",
+          existing_update_rel_path: selectedExistingUpdateRel,
+          figure,
+          panel: panelF.input.value.trim(),
+          status: statusF.input.value,
+          brief_description: brief,
+          source_file: pathF.input.value.trim(),
+          legend: legendF.input.value.trim(),
+          what_changed: changedF.input.value.trim(),
+          interpretation: interpF.input.value.trim(),
+          concerns: concernsF.input.value.trim(),
+          next_step: nextF.input.value.trim(),
+        }, project.slug);
+        let info = {};
+        try { info = JSON.parse(out.stdout); } catch {}
+        statusLine.textContent = "Saved → " + (info.rel_path || "data-updates/")
+          + (info.archived_zip ? " (previous data archived)" : "")
+          + (info.figure_plan_status_updated ? " (figure-plan.md row updated)" : "");
+        setTimeout(() => { overlay.remove(); window.location.reload(); }, 700);
+      } catch (err) {
+        statusLine.textContent = "Save failed: " + err.message;
+        save.disabled = false;
+      }
+    });
+
+    document.body.append(overlay);
+    figureF.input.focus();
+  }
+
+  /* ──────────────────────────────────────────────────────────────────
+     RENUMBER FIGURES MODAL
+     ────────────────────────────────────────────────────────────────── */
+
+  function openRenumberModal(project) {
+    const overlay = makeOverlay("renumber-modal", "manager-editor-overlay");
+    const modal = el("div", "manager-editor-modal");
+    overlay.append(modal);
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), `Renumber figures — ${project.title || project.slug}`));
+    const close = text(el("button", "manager-editor-close"), "×");
+    close.type = "button";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(close);
+    modal.append(head);
+
+    modal.append(text(el("p", "admin-help"),
+      "Map old figure labels to new labels. Every data-update with a matching `figure` will be updated, " +
+      "its data file renamed, figure-plan.md row(s) replaced, and the change logged in CHANGELOG.md."));
+
+    const rowsWrap = el("div", "renumber-rows-wrap");
+    modal.append(rowsWrap);
+    const rows = [{ from: "", to: "" }];
+    function renderRows() {
+      rowsWrap.innerHTML = "";
+      rows.forEach((r, i) => {
+        const row = el("div", "renumber-row");
+        const fromIn = document.createElement("input");
+        fromIn.type = "text"; fromIn.placeholder = "Fig 1"; fromIn.value = r.from;
+        fromIn.addEventListener("input", () => { r.from = fromIn.value; });
+        const arrow = el("span", "renumber-arrow", "→");
+        const toIn = document.createElement("input");
+        toIn.type = "text"; toIn.placeholder = "Fig 2"; toIn.value = r.to;
+        toIn.addEventListener("input", () => { r.to = toIn.value; });
+        const del = text(el("button", "manager-editor-del"), "×");
+        del.type = "button";
+        del.addEventListener("click", () => {
+          rows.splice(i, 1);
+          if (rows.length === 0) rows.push({ from: "", to: "" });
+          renderRows();
+        });
+        row.append(fromIn, arrow, toIn, del);
+        rowsWrap.append(row);
+      });
+    }
+    renderRows();
+    const addRow = text(el("button", "manager-editor-add"), "+ Add mapping");
+    addRow.type = "button";
+    addRow.addEventListener("click", () => { rows.push({ from: "", to: "" }); renderRows(); });
+    modal.append(addRow);
+
+    const reasonWrap = el("label", "du-field");
+    reasonWrap.append(text(el("span", "du-field-label"), "Reason (CHANGELOG)"));
+    const reasonIn = document.createElement("input");
+    reasonIn.type = "text";
+    reasonIn.placeholder = "e.g., reordered figures for clarity";
+    reasonWrap.append(reasonIn);
+    modal.append(reasonWrap);
+
+    const statusLine = el("p", "manager-editor-status");
+    modal.append(statusLine);
+
+    const actions = el("div", "manager-editor-actions");
+    const cancel = text(el("button", "manager-editor-cancel"), "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => overlay.remove());
+    const apply = text(el("button", "manager-editor-save"), "Apply renumber");
+    apply.type = "button";
+    apply.addEventListener("click", async () => {
+      const mapping = {};
+      for (const r of rows) {
+        const from = (r.from || "").trim();
+        const to = (r.to || "").trim();
+        if (!from && !to) continue;
+        if (!from || !to) { statusLine.textContent = "Each row needs both from and to."; return; }
+        if (from === to) { statusLine.textContent = "Skipping self-mapping is fine; remove it."; return; }
+        mapping[from] = to;
+      }
+      if (Object.keys(mapping).length === 0) { statusLine.textContent = "Add at least one mapping."; return; }
+      apply.disabled = true;
+      statusLine.textContent = "Applying...";
+      try {
+        const out = await callApi("renumber-figures", {
+          mapping, reason: reasonIn.value.trim(),
+        }, project.slug);
+        const info = JSON.parse(out.stdout);
+        statusLine.textContent = `Updated ${info.data_updates_changed} data-update(s) + ${info.figure_plan_rows_changed} figure-plan row(s).`;
+        setTimeout(() => { overlay.remove(); window.location.reload(); }, 800);
+      } catch (err) {
+        statusLine.textContent = "Renumber failed: " + err.message;
+        apply.disabled = false;
+      }
+    });
+    actions.append(cancel, apply);
+    modal.append(actions);
+    document.body.append(overlay);
+  }
+
+  /* ──────────────────────────────────────────────────────────────────
+     ARCHIVE VIEWER
+     ────────────────────────────────────────────────────────────────── */
+
+  async function openArchiveModal(project) {
+    const overlay = makeOverlay("archive-modal", "manager-editor-overlay");
+    const modal = el("div", "manager-editor-modal bucket-modal");
+    overlay.append(modal);
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), `Archive — ${project.title || project.slug}`));
+    const close = text(el("button", "manager-editor-close"), "×");
+    close.type = "button";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(close);
+    modal.append(head);
+
+    const status = el("p", "manager-editor-status", "Loading...");
+    modal.append(status);
+    const listWrap = el("div", "bucket-file-list");
+    modal.append(listWrap);
+    document.body.append(overlay);
+
+    try {
+      const out = await callApi("list-archive", {}, project.slug);
+      const info = JSON.parse(out.stdout);
+      if (!info.configured) {
+        status.textContent = "Set Google Drive path first (use + Data update modal).";
+        return;
+      }
+      const items = info.items || [];
+      status.textContent = items.length
+        ? `${items.length} archived zip${items.length === 1 ? "" : "s"}`
+        : "No archives yet.";
+      items.forEach((it) => {
+        const row = el("div", "bucket-file-row");
+        const icon = el("span", "bucket-file-icon", "🗜");
+        const main = el("div", "bucket-file-open archive-main");
+        main.append(text(el("strong"), it.name));
+        main.append(text(el("span", "bucket-file-meta"),
+          `${(it.size / 1024).toFixed(1)} KB · ${it.mtime}`));
+        const right = el("div", "bucket-file-right");
+        right.append(text(el("code", "bucket-file-path"), it.abs_path));
+        const restoreBtn = text(el("button", "bucket-file-reassign"), "Restore");
+        restoreBtn.type = "button";
+        restoreBtn.addEventListener("click", async () => {
+          restoreBtn.disabled = true;
+          try {
+            const r = await callApi("restore-archive", { zip_path: it.abs_path }, project.slug);
+            const ri = JSON.parse(r.stdout);
+            alert(`Restored as: ${ri.name}`);
+          } catch (err) {
+            alert("Restore failed: " + err.message);
+            restoreBtn.disabled = false;
+          }
+        });
+        right.append(restoreBtn);
+        row.append(icon, main, right);
+        listWrap.append(row);
+      });
+    } catch (err) {
+      status.textContent = "Failed to load: " + err.message;
+    }
+  }
+
+  /* ──────────────────────────────────────────────────────────────────
+     MEETING MODALS
+     ────────────────────────────────────────────────────────────────── */
+
+  async function fetchMeetingTypes() {
+    const out = await callApi("list-meeting-types", {});
+    return JSON.parse(out.stdout).types || [];
+  }
+
+  async function openMeetingModal(project) {
+    const overlay = makeOverlay("meeting-modal", "manager-editor-overlay");
+    const modal = el("div", "manager-editor-modal data-update-modal");
+    overlay.append(modal);
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), `+ Meeting — ${project.title || project.slug}`));
+    const close = text(el("button", "manager-editor-close"), "×");
+    close.type = "button";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(close);
+    modal.append(head);
+
+    const fields = el("div", "du-fields-wrap");
+    function fld(label, ph, multiline) {
+      const w = el("label", "du-field");
+      w.append(text(el("span", "du-field-label"), label));
+      const i = multiline ? document.createElement("textarea") : document.createElement("input");
+      if (multiline) i.rows = 3;
+      else i.type = "text";
+      i.placeholder = ph || "";
+      w.append(i);
+      return { wrap: w, input: i };
+    }
+
+    // Type dropdown + add new
+    const typeWrap = el("label", "du-field");
+    typeWrap.append(text(el("span", "du-field-label"), "Meeting type"));
+    const typeRow = el("div", "du-path-row");
+    const typeSel = document.createElement("select");
+    typeSel.className = "du-picker-select";
+    const addTypeBtn = text(el("button", "du-browse-btn"), "+ New type");
+    addTypeBtn.type = "button";
+    typeRow.style.gridTemplateColumns = "1fr auto";
+    typeRow.append(typeSel, addTypeBtn);
+    typeWrap.append(typeRow);
+    fields.append(typeWrap);
+
+    async function reloadTypes(selectName) {
+      typeSel.innerHTML = "";
+      const types = await fetchMeetingTypes();
+      types.forEach((t) => {
+        const opt = document.createElement("option");
+        opt.value = t; opt.textContent = t;
+        if (t === selectName) opt.selected = true;
+        typeSel.append(opt);
+      });
+    }
+    reloadTypes();
+    addTypeBtn.addEventListener("click", async () => {
+      const name = prompt("New meeting type (letters/digits/_-, 2–32 chars):", "");
+      if (!name) return;
+      try {
+        await callApi("add-meeting-type", { name: name.trim() });
+        await reloadTypes(name.trim());
+      } catch (err) { alert("Failed: " + err.message); }
+    });
+
+    const titleF = fld("Title", "e.g., Cerebellar circuit progress review");
+    const whenF = (function () {
+      const w = el("label", "du-field");
+      w.append(text(el("span", "du-field-label"), "When (local time)"));
+      const i = document.createElement("input");
+      i.type = "datetime-local";
+      const def = new Date();
+      def.setMinutes(0, 0, 0);
+      def.setHours(def.getHours() + 1);
+      i.value = def.toISOString().slice(0, 16);
+      w.append(i);
+      return { wrap: w, input: i };
+    })();
+    const durF = (function () {
+      const w = el("label", "du-field");
+      w.append(text(el("span", "du-field-label"), "Duration (minutes)"));
+      const i = document.createElement("input");
+      i.type = "number"; i.min = "5"; i.max = "480"; i.step = "5"; i.value = "60";
+      w.append(i);
+      return { wrap: w, input: i };
+    })();
+    const locF = fld("Location / Zoom link (optional)", "https://zoom.us/j/...");
+    const agendaF = fld("Agenda", "What this meeting needs to cover", true);
+    [titleF, whenF, durF, locF, agendaF].forEach(({ wrap }) => fields.append(wrap));
+
+    // Attendees from project managers
+    const attWrap = el("div", "du-field");
+    attWrap.append(text(el("span", "du-field-label"), "Attendees"));
+    const attList = el("div", "meeting-attendee-list");
+    (project.managers || []).forEach((m) => {
+      const row = el("label", "manager-pop-row");
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = true;
+      cb.dataset.name = m.name || ""; cb.dataset.email = m.email || "";
+      row.append(cb, text(el("span", "manager-pop-name"), m.name || m.email || "?"));
+      row.append(text(el("span", "manager-pop-email"), m.email || "(no email)"));
+      attList.append(row);
+    });
+    attWrap.append(attList);
+    // Extra attendee inputs
+    const extras = [];
+    const extraWrap = el("div", "meeting-extra-attendees");
+    function renderExtras() {
+      extraWrap.innerHTML = "";
+      extras.forEach((e, i) => {
+        const row = el("div", "renumber-row");
+        const n = document.createElement("input");
+        n.type = "text"; n.placeholder = "Name"; n.value = e.name;
+        n.addEventListener("input", () => { e.name = n.value; });
+        const em = document.createElement("input");
+        em.type = "email"; em.placeholder = "email@example.com"; em.value = e.email;
+        em.addEventListener("input", () => { e.email = em.value; });
+        const del = text(el("button", "manager-editor-del"), "×");
+        del.type = "button";
+        del.addEventListener("click", () => { extras.splice(i, 1); renderExtras(); });
+        row.append(n, em, del);
+        extraWrap.append(row);
+      });
+    }
+    const addExtra = text(el("button", "manager-editor-add"), "+ Add attendee");
+    addExtra.type = "button";
+    addExtra.addEventListener("click", () => { extras.push({ name: "", email: "" }); renderExtras(); });
+    attWrap.append(extraWrap, addExtra);
+    fields.append(attWrap);
+
+    // Options row
+    const optsWrap = el("div", "du-mode-row");
+    const calOpt = el("label", "du-mode-opt");
+    const calIn = document.createElement("input");
+    calIn.type = "checkbox"; calIn.checked = true;
+    calOpt.append(calIn, text(el("span"), "Add to macOS Calendar"));
+    const mailOpt = el("label", "du-mode-opt");
+    const mailIn = document.createElement("input");
+    mailIn.type = "checkbox"; mailIn.checked = true;
+    mailOpt.append(mailIn, text(el("span"), "Open mail app with invite info"));
+    optsWrap.append(calOpt, mailOpt);
+    fields.append(optsWrap);
+
+    modal.append(fields);
+
+    const statusLine = el("p", "manager-editor-status");
+    modal.append(statusLine);
+
+    const actions = el("div", "manager-editor-actions");
+    const cancel = text(el("button", "manager-editor-cancel"), "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => overlay.remove());
+    const save = text(el("button", "manager-editor-save"), "Create meeting");
+    save.type = "button";
+    save.addEventListener("click", async () => {
+      const title = titleF.input.value.trim();
+      const when = whenF.input.value;
+      if (!when) { statusLine.textContent = "Pick a date/time."; return; }
+      const attendees = [];
+      attList.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+        if (cb.checked) attendees.push({ name: cb.dataset.name, email: cb.dataset.email });
+      });
+      extras.forEach((e) => {
+        if ((e.name || "").trim() || (e.email || "").trim()) attendees.push(e);
+      });
+      save.disabled = true;
+      statusLine.textContent = "Creating...";
+      try {
+        const out = await callApi("create-meeting", {
+          type: typeSel.value,
+          title,
+          datetime: when,
+          duration_minutes: parseInt(durF.input.value || "60", 10),
+          location: locF.input.value.trim(),
+          agenda: agendaF.input.value.trim(),
+          attendees,
+          add_to_calendar: calIn.checked,
+        }, project.slug);
+        const info = JSON.parse(out.stdout);
+        let note = `Saved: ${info.rel_path}`;
+        if (info.calendar_added) note += "  ·  Calendar.app updated";
+        else if (calIn.checked) note += `  ·  Calendar: ${info.calendar_message}`;
+        statusLine.textContent = note;
+        if (mailIn.checked && info.mailto_url) {
+          window.location.href = info.mailto_url;
+        }
+        // Also reveal the .ics so user can drag it into mail app for attachment
+        try { await callApi("open-relative-path", { rel_path: info.ics_rel_path }); } catch {}
+        setTimeout(() => { overlay.remove(); window.location.reload(); }, 1000);
+      } catch (err) {
+        statusLine.textContent = "Create failed: " + err.message;
+        save.disabled = false;
+      }
+    });
+    actions.append(cancel, save);
+    modal.append(actions);
+    document.body.append(overlay);
+    titleF.input.focus();
+  }
+
+  async function openMeetingsListModal(project) {
+    const overlay = makeOverlay("meetings-list", "manager-editor-overlay");
+    const modal = el("div", "manager-editor-modal bucket-modal");
+    overlay.append(modal);
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), `Meetings — ${project.title || project.slug}`));
+    const close = text(el("button", "manager-editor-close"), "×");
+    close.type = "button";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(close);
+    modal.append(head);
+
+    const status = el("p", "manager-editor-status", "Loading...");
+    modal.append(status);
+    const listWrap = el("div", "bucket-file-list");
+    modal.append(listWrap);
+    document.body.append(overlay);
+
+    try {
+      const out = await callApi("list-meetings", {}, project.slug);
+      const info = JSON.parse(out.stdout);
+      const items = info.items || [];
+      status.textContent = items.length
+        ? `${items.length} meeting${items.length === 1 ? "" : "s"}`
+        : "No meetings yet.";
+      items.forEach((it) => {
+        const row = el("div", "bucket-file-row meeting-row");
+        const icon = el("span", "bucket-file-icon", "🗓");
+        const main = el("button", "bucket-file-open");
+        main.type = "button";
+        main.append(text(el("strong"), `[${it.type}] ${it.title}`));
+        const when = it.datetime ? it.datetime.replace("T", " ").slice(0, 16) : "";
+        const attCount = (it.attendees || []).length;
+        main.append(text(el("span", "bucket-file-meta"),
+          `${when} · ${it.duration_minutes} min · ${attCount} attendee${attCount === 1 ? "" : "s"}${it.location ? " · " + it.location : ""}`));
+        main.addEventListener("click", async () => {
+          main.disabled = true;
+          try { await callApi("open-relative-path", { rel_path: it.rel_path }); }
+          catch (err) { alert("Open failed: " + err.message); main.disabled = false; }
+        });
+        const right = el("div", "bucket-file-right");
+        const noteBtn = text(el("button", "bucket-file-reassign"), "+ Note");
+        noteBtn.type = "button";
+        noteBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openMeetingNoteModal(project, it);
+        });
+        right.append(noteBtn);
+        if (it.ics_rel_path) {
+          const icsBtn = text(el("button", "bucket-file-reassign"), ".ics");
+          icsBtn.type = "button";
+          icsBtn.title = "Open ICS (adds to Calendar.app)";
+          icsBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            try { await callApi("open-relative-path", { rel_path: it.ics_rel_path }); }
+            catch (err) { alert("Open failed: " + err.message); }
+          });
+          right.append(icsBtn);
+        }
+        row.append(icon, main, right);
+        listWrap.append(row);
+      });
+    } catch (err) {
+      status.textContent = "Failed: " + err.message;
+    }
+  }
+
+  /* ──────────────────────────────────────────────────────────────────
+     PHASE 3: LLM SYNC LAUNCH + PROPOSAL REVIEW
+     ────────────────────────────────────────────────────────────────── */
+
+  async function launchLocalSync(project, actionId) {
+    try {
+      const out = await callApi(actionId, {}, project.slug);
+      alert((out.stdout || "").trim() + "\n\nAfter the local agent finishes, click 'Proposals' to review and apply.");
+    } catch (err) {
+      alert("Launch failed: " + err.message);
+    }
+  }
+
+  async function openProposalsModal(project) {
+    const overlay = makeOverlay("proposals-modal", "manager-editor-overlay");
+    const modal = el("div", "manager-editor-modal bucket-modal");
+    overlay.append(modal);
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), `Sync proposals — ${project.title || project.slug}`));
+    const close = text(el("button", "manager-editor-close"), "×");
+    close.type = "button";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(close);
+    modal.append(head);
+
+    const status = el("p", "manager-editor-status", "Loading...");
+    modal.append(status);
+    const listWrap = el("div", "bucket-file-list");
+    modal.append(listWrap);
+    document.body.append(overlay);
+
+    try {
+      const out = await callApi("list-sync-proposals", {}, project.slug);
+      const info = JSON.parse(out.stdout);
+      const items = info.items || [];
+      status.textContent = items.length
+        ? `${items.length} proposal${items.length === 1 ? "" : "s"}`
+        : "No proposals yet — run a 🤖 Sync first.";
+      items.forEach((it) => {
+        const card = el("div", "proposal-card");
+        const ph = el("div", "proposal-head");
+        ph.append(text(el("strong"), `${it.kind}  ·  ${it.name}`));
+        ph.append(text(el("span", "bucket-file-meta"),
+          `${it.action_count} action${it.action_count === 1 ? "" : "s"} · ${it.mtime}`));
+        const openBtn = text(el("button", "bucket-file-reassign"), "Open file");
+        openBtn.type = "button";
+        openBtn.addEventListener("click", async () => {
+          try { await callApi("open-relative-path", { rel_path: it.rel_path }); }
+          catch (err) { alert("Open failed: " + err.message); }
+        });
+        ph.append(openBtn);
+        card.append(ph);
+
+        const actions = it.actions || [];
+        if (!actions.length) {
+          card.append(text(el("p", "admin-help"), "No JSON action items parsed. Open the file to inspect."));
+        } else {
+          const list = el("div", "proposal-items");
+          const checks = [];
+          actions.forEach((a) => {
+            const row = el("label", "proposal-item");
+            const cb = document.createElement("input");
+            cb.type = "checkbox"; cb.checked = true;
+            cb.dataset.id = a.id || "";
+            checks.push(cb);
+            const summary = el("div", "proposal-item-body");
+            summary.append(text(el("strong"), `[${a.action || "?"}] ${a.id || ""}`));
+            const detail = summarizeAction(a);
+            summary.append(text(el("span", "bucket-file-meta"), detail));
+            if (a.source_files && a.source_files.length) {
+              const src = el("span", "proposal-sources",
+                "source: " + a.source_files.join(", "));
+              summary.append(src);
+            }
+            row.append(cb, summary);
+            list.append(row);
+          });
+          card.append(list);
+          const applyRow = el("div", "manager-editor-actions");
+          const allBtn = text(el("button", "manager-editor-cancel"), "Toggle all");
+          allBtn.type = "button";
+          allBtn.addEventListener("click", () => {
+            const anyOff = checks.some((c) => !c.checked);
+            checks.forEach((c) => { c.checked = anyOff; });
+          });
+          const applyBtn = text(el("button", "manager-editor-save"), "Apply selected");
+          applyBtn.type = "button";
+          applyBtn.addEventListener("click", async () => {
+            const ids = checks.filter((c) => c.checked).map((c) => c.dataset.id).filter(Boolean);
+            if (!ids.length) { alert("Select at least one item."); return; }
+            applyBtn.disabled = true;
+            try {
+              const r = await callApi("apply-sync-proposal", {
+                proposal_rel_path: it.rel_path,
+                selected_ids: ids,
+              }, project.slug);
+              const ri = JSON.parse(r.stdout);
+              alert(`Applied:\n${(ri.applied || []).join("\n") || "(none)"}\n\nSkipped:\n${(ri.skipped || []).join("\n") || "(none)"}`);
+              overlay.remove();
+              window.location.reload();
+            } catch (err) {
+              alert("Apply failed: " + err.message);
+              applyBtn.disabled = false;
+            }
+          });
+          applyRow.append(allBtn, applyBtn);
+          card.append(applyRow);
+        }
+        listWrap.append(card);
+      });
+    } catch (err) {
+      status.textContent = "Failed: " + err.message;
+    }
+  }
+
+  function summarizeAction(a) {
+    const k = a.action;
+    if (k === "figure_plan_status_update")
+      return `${a.figure || ""}${a.panel ? " " + a.panel : ""}  status → ${a.new_status}.  ${a.reason || ""}`;
+    if (k === "experiment_roadmap_status_update")
+      return `experiment "${a.experiment || ""}" → ${a.new_status}.  ${a.reason || ""}`;
+    if (k === "decision_log_append")
+      return `Decision_Log: ${a.entry || ""}`;
+    if (k === "figure_plan_add_row")
+      return `add figure ${a.figure || ""}${a.panel ? " " + a.panel : ""}: ${a.claim || ""}`;
+    if (k === "experiment_roadmap_add_row")
+      return `add experiment: ${a.experiment || ""} — ${a.purpose || ""}`;
+    if (k === "note")
+      return `(note) ${a.text || ""}`;
+    return JSON.stringify(a);
+  }
+
+  function openMeetingNoteModal(project, meeting) {
+    const overlay = makeOverlay("meeting-note", "manager-editor-overlay");
+    const modal = el("div", "manager-editor-modal");
+    overlay.append(modal);
+    const head = el("div", "manager-editor-head");
+    head.append(text(el("h3"), `+ Note — ${meeting.title || meeting.name}`));
+    const close = text(el("button", "manager-editor-close"), "×");
+    close.type = "button";
+    close.addEventListener("click", () => overlay.remove());
+    head.append(close);
+    modal.append(head);
+
+    modal.append(text(el("p", "admin-help"),
+      "Notes are appended to the meeting file as a new section (append-only history). " +
+      "Use this to log discussion points; later you can run an LLM-driven sync (Phase 3) to propose updates to figure-plan and Decision_Log."));
+
+    const noteWrap = el("label", "du-field");
+    noteWrap.append(text(el("span", "du-field-label"), "Note (markdown ok)"));
+    const noteIn = document.createElement("textarea");
+    noteIn.rows = 8;
+    noteIn.placeholder = "- Decision: drop Fig 3B (insufficient n)\n- Action: rerun control with new mouse line\n- ...";
+    noteWrap.append(noteIn);
+    modal.append(noteWrap);
+
+    const authorWrap = el("label", "du-field");
+    authorWrap.append(text(el("span", "du-field-label"), "Author (optional)"));
+    const authorIn = document.createElement("input");
+    authorIn.type = "text"; authorIn.placeholder = "Your name";
+    authorWrap.append(authorIn);
+    modal.append(authorWrap);
+
+    const statusLine = el("p", "manager-editor-status");
+    modal.append(statusLine);
+
+    const actions = el("div", "manager-editor-actions");
+    const cancel = text(el("button", "manager-editor-cancel"), "Cancel");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => overlay.remove());
+    const save = text(el("button", "manager-editor-save"), "Append note");
+    save.type = "button";
+    save.addEventListener("click", async () => {
+      const note = noteIn.value.trim();
+      if (!note) { statusLine.textContent = "Note is empty."; return; }
+      save.disabled = true;
+      statusLine.textContent = "Saving...";
+      try {
+        await callApi("add-meeting-note", {
+          meeting_rel_path: meeting.rel_path,
+          note,
+          author: authorIn.value.trim(),
+        }, project.slug);
+        statusLine.textContent = "Saved.";
+        setTimeout(() => overlay.remove(), 500);
+      } catch (err) {
+        statusLine.textContent = "Save failed: " + err.message;
+        save.disabled = false;
+      }
+    });
+    actions.append(cancel, save);
+    modal.append(actions);
+    document.body.append(overlay);
+    noteIn.focus();
   }
 })();

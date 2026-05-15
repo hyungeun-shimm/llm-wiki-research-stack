@@ -7,13 +7,13 @@ Obsidian is the recommended reader for this repository because it understands pl
 Open this repository as one Obsidian vault:
 
 ```bash
-open -a Obsidian "$(pwd)"
+open -a Obsidian "."
 ```
 
 If Obsidian asks what to open, choose **Open folder as vault** and select:
 
 ```text
-<path-to-your-repo>
+.
 ```
 
 After the first setup, the dashboard's **Open Obsidian Vault** button should open the vault directly.

@@ -10,13 +10,19 @@ server reconstructs the command from a local allowlist.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
+import os
+import secrets
 import shutil
+import smtplib
 import subprocess
 import sys
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
+from email.message import EmailMessage
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -39,6 +45,8 @@ LOCAL_AGENT_ROLES = {
     "local-demon": "demon",
     "local-rejection-sim": "rejection-sim",
     "local-scout-brief": "scout-brief",
+    "local-data-sync": "data-sync",
+    "local-meeting-sync": "meeting-sync",
 }
 
 
@@ -90,6 +98,48 @@ def read_project_type(project: Path) -> str | None:
     except OSError:
         return None
     return None
+
+
+def _write_managers_frontmatter(brief_path: Path, managers: list[dict[str, str]]) -> str:
+    """Replace the `managers:` block in a Project_Brief.md frontmatter.
+
+    Preserves all other frontmatter fields and body text. If no `managers:` key
+    exists, inserts one at the end of the frontmatter block.
+    """
+    raw = brief_path.read_text(encoding="utf-8")
+    if not raw.startswith("---"):
+        raise DashboardError("Project_Brief.md has no YAML frontmatter to update.")
+    parts = raw.split("---", 2)
+    if len(parts) < 3:
+        raise DashboardError("Malformed frontmatter in Project_Brief.md.")
+    fm_text = parts[1]
+    body = parts[2]
+    fm_lines = fm_text.splitlines()
+    # Drop existing `managers:` and any indented list rows under it.
+    new_lines: list[str] = []
+    skipping = False
+    for line in fm_lines:
+        stripped = line.lstrip()
+        if not skipping and line.startswith("managers:"):
+            skipping = True
+            continue
+        if skipping:
+            if line.startswith((" ", "\t", "-")) and stripped:
+                continue
+            skipping = False
+        new_lines.append(line)
+    while new_lines and not new_lines[-1].strip():
+        new_lines.pop()
+    if managers:
+        new_lines.append("managers:")
+        for m in managers:
+            name = (m.get("name") or "").replace('"', '\\"')
+            email = (m.get("email") or "").replace('"', '\\"')
+            new_lines.append(f'  - name: "{name}"')
+            new_lines.append(f'    email: "{email}"')
+    rebuilt = "---\n" + "\n".join(new_lines) + "\n---" + body
+    brief_path.write_text(rebuilt, encoding="utf-8")
+    return f"Updated managers in {brief_path.relative_to(ROOT)} ({len(managers)} entr{'y' if len(managers) == 1 else 'ies'})."
 
 
 def require_library_ingest(project: Path) -> None:
@@ -355,9 +405,651 @@ def auto_download_queue(params: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+ADMIN_DIR = ROOT / "_system" / "admin"
+ADMIN_CONFIG = ADMIN_DIR / "admin_config.json"
+RESET_CODE_TTL_MIN = 15
+
+
+def _load_admin_config() -> dict:
+    if not ADMIN_CONFIG.exists():
+        return {}
+    try:
+        return json.loads(ADMIN_CONFIG.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_admin_config(data: dict) -> None:
+    ADMIN_DIR.mkdir(parents=True, exist_ok=True)
+    ADMIN_CONFIG.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    try:
+        os.chmod(ADMIN_CONFIG, 0o600)
+    except OSError:
+        pass
+
+
+def _hash_pin(pin: str, salt: str) -> str:
+    h = hashlib.pbkdf2_hmac("sha256", pin.encode("utf-8"), bytes.fromhex(salt), 200_000)
+    return h.hex()
+
+
+def _mask_email(email: str) -> str:
+    if not email or "@" not in email:
+        return ""
+    local, _, domain = email.partition("@")
+    if len(local) <= 2:
+        masked_local = local[0] + "*"
+    else:
+        masked_local = local[0] + "*" * (len(local) - 2) + local[-1]
+    return f"{masked_local}@{domain}"
+
+
+def _validate_pin(pin: str) -> str:
+    pin = (pin or "").strip()
+    if not re.fullmatch(r"\d{4,8}", pin):
+        raise DashboardError("PIN must be 4–8 digits.")
+    return pin
+
+
+def _validate_email(email: str) -> str:
+    email = (email or "").strip()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise DashboardError(f"Invalid email address: {email!r}")
+    return email
+
+
+def _smtp_env() -> dict | None:
+    host = os.environ.get("DASHBOARD_SMTP_HOST")
+    user = os.environ.get("DASHBOARD_SMTP_USER")
+    pwd = os.environ.get("DASHBOARD_SMTP_PASSWORD")
+    if not (host and user and pwd):
+        return None
+    return {
+        "host": host,
+        "port": int(os.environ.get("DASHBOARD_SMTP_PORT") or 587),
+        "user": user,
+        "password": pwd,
+        "from_addr": os.environ.get("DASHBOARD_SMTP_FROM") or user,
+    }
+
+
+def _send_reset_email(recipient: str, code: str) -> tuple[bool, str]:
+    cfg = _smtp_env()
+    if not cfg:
+        msg = (
+            f"[Dashboard] SMTP not configured. Reset code printed to server console: {code}\n"
+            "Configure SMTP by setting DASHBOARD_SMTP_HOST / PORT / USER / PASSWORD / FROM env vars."
+        )
+        print(f"[admin-reset-pin] Recovery code for {recipient}: {code}")
+        return False, msg
+    try:
+        em = EmailMessage()
+        em["Subject"] = "Dashboard admin PIN reset code"
+        em["From"] = cfg["from_addr"]
+        em["To"] = recipient
+        em.set_content(
+            f"Your dashboard admin PIN reset code is: {code}\n\n"
+            f"This code expires in {RESET_CODE_TTL_MIN} minutes.\n"
+            "If you did not request this, you can ignore this email."
+        )
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=15) as smtp:
+            smtp.starttls()
+            smtp.login(cfg["user"], cfg["password"])
+            smtp.send_message(em)
+        return True, f"Reset code sent to {_mask_email(recipient)}."
+    except Exception as exc:  # noqa: BLE001
+        print(f"[admin-reset-pin] SMTP send failed: {exc}. Code for {recipient}: {code}")
+        return False, f"SMTP send failed: {exc}. Code printed to server console."
+
+
+def handle_admin_action(action_id: str, params: dict) -> dict:
+    cfg = _load_admin_config()
+    is_configured = bool(cfg.get("pin_hash"))
+
+    if action_id == "admin-status":
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "command": "admin-status",
+            "stdout": json.dumps({
+                "configured": is_configured,
+                "recovery_email_masked": _mask_email(cfg.get("recovery_email", "")),
+                "smtp_configured": _smtp_env() is not None,
+            }),
+            "stderr": "",
+            "log": "",
+        }
+
+    if action_id == "admin-setup":
+        if is_configured and not params.get("force"):
+            raise DashboardError("Admin already configured. Use reset-pin to change it.")
+        pin = _validate_pin(str(params.get("pin") or ""))
+        recovery_email = _validate_email(str(params.get("recovery_email") or ""))
+        salt = secrets.token_hex(16)
+        cfg = {
+            "pin_hash": _hash_pin(pin, salt),
+            "salt": salt,
+            "recovery_email": recovery_email,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        _save_admin_config(cfg)
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "command": "admin-setup",
+            "stdout": f"Admin PIN configured. Recovery email: {_mask_email(recovery_email)}",
+            "stderr": "",
+            "log": "",
+        }
+
+    if action_id == "admin-verify":
+        if not is_configured:
+            raise DashboardError("Admin PIN is not configured yet.")
+        pin = _validate_pin(str(params.get("pin") or ""))
+        expected = cfg.get("pin_hash", "")
+        if not hmac.compare_digest(_hash_pin(pin, cfg.get("salt", "")), expected):
+            raise DashboardError("Incorrect PIN.")
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "command": "admin-verify",
+            "stdout": "PIN verified.",
+            "stderr": "",
+            "log": "",
+        }
+
+    if action_id == "admin-request-reset":
+        if not is_configured:
+            raise DashboardError("Admin PIN is not configured yet.")
+        provided = _validate_email(str(params.get("recovery_email") or ""))
+        stored = cfg.get("recovery_email", "")
+        if provided.lower() != stored.lower():
+            raise DashboardError("Recovery email does not match the configured address.")
+        code = f"{secrets.randbelow(1000000):06d}"
+        salt = cfg.get("salt") or secrets.token_hex(16)
+        cfg["salt"] = salt
+        cfg["reset_token"] = {
+            "code_hash": _hash_pin(code, salt),
+            "expires_at": (datetime.now() + timedelta(minutes=RESET_CODE_TTL_MIN)).isoformat(timespec="seconds"),
+        }
+        _save_admin_config(cfg)
+        sent, message = _send_reset_email(stored, code)
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "command": "admin-request-reset",
+            "stdout": json.dumps({
+                "sent_via_email": sent,
+                "message": message,
+                "ttl_minutes": RESET_CODE_TTL_MIN,
+                "recovery_email_masked": _mask_email(stored),
+            }),
+            "stderr": "",
+            "log": "",
+        }
+
+    if action_id == "admin-reset-pin":
+        if not is_configured:
+            raise DashboardError("Admin PIN is not configured yet.")
+        token = cfg.get("reset_token") or {}
+        if not token.get("code_hash"):
+            raise DashboardError("No active reset code. Request a new one first.")
+        try:
+            expires = datetime.fromisoformat(token.get("expires_at", ""))
+        except ValueError:
+            raise DashboardError("Reset token is malformed. Request a new one.")
+        if datetime.now() > expires:
+            cfg.pop("reset_token", None)
+            _save_admin_config(cfg)
+            raise DashboardError("Reset code has expired. Request a new one.")
+        code = (str(params.get("code") or "")).strip()
+        new_pin = _validate_pin(str(params.get("new_pin") or ""))
+        if not hmac.compare_digest(_hash_pin(code, cfg.get("salt", "")), token["code_hash"]):
+            raise DashboardError("Incorrect reset code.")
+        cfg["pin_hash"] = _hash_pin(new_pin, cfg["salt"])
+        cfg.pop("reset_token", None)
+        _save_admin_config(cfg)
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "command": "admin-reset-pin",
+            "stdout": "PIN reset successfully.",
+            "stderr": "",
+            "log": "",
+        }
+
+    raise DashboardError(f"Unknown admin action: {action_id}")
+
+
+DEFAULT_MEETING_TYPES = ["table", "progress", "collaborator"]
+MEETING_TYPES_FILE = ROOT / "_system" / "admin" / "meeting_types.json"
+
+
+def _load_meeting_types() -> list[str]:
+    if not MEETING_TYPES_FILE.exists():
+        return list(DEFAULT_MEETING_TYPES)
+    try:
+        data = json.loads(MEETING_TYPES_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return [str(t).strip() for t in data if str(t).strip()]
+    except (OSError, json.JSONDecodeError):
+        pass
+    return list(DEFAULT_MEETING_TYPES)
+
+
+def _save_meeting_types(types: list[str]) -> None:
+    MEETING_TYPES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    MEETING_TYPES_FILE.write_text(json.dumps(types, indent=2), encoding="utf-8")
+
+
+def _build_ics(meeting: dict) -> str:
+    """Build a minimal RFC-5545 VCALENDAR/VEVENT string."""
+    def _ics_dt(dt_str: str) -> str:
+        # Accepts ISO 8601 local time; emit floating local time (no Z).
+        d = datetime.fromisoformat(dt_str)
+        return d.strftime("%Y%m%dT%H%M%S")
+    def _esc(s: str) -> str:
+        return (s or "").replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
+    start = _ics_dt(meeting["datetime"])
+    duration_min = int(meeting.get("duration_minutes") or 60)
+    end_dt = datetime.fromisoformat(meeting["datetime"]) + timedelta(minutes=duration_min)
+    end = end_dt.strftime("%Y%m%dT%H%M%S")
+    uid = meeting["uid"]
+    summary = f"[{meeting['type']}] {meeting['title']}"
+    desc = (meeting.get("agenda") or "").strip()
+    location = (meeting.get("location") or "").strip()
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//LLM-Wiki Dashboard//EN",
+        "CALSCALE:GREGORIAN",
+        "BEGIN:VEVENT",
+        f"UID:{uid}",
+        f"DTSTAMP:{datetime.now().strftime('%Y%m%dT%H%M%S')}",
+        f"DTSTART:{start}",
+        f"DTEND:{end}",
+        f"SUMMARY:{_esc(summary)}",
+    ]
+    if desc:
+        lines.append(f"DESCRIPTION:{_esc(desc)}")
+    if location:
+        lines.append(f"LOCATION:{_esc(location)}")
+    for att in meeting.get("attendees", []):
+        email = (att.get("email") or "").strip()
+        name = (att.get("name") or "").strip()
+        if email:
+            cn = f';CN="{_esc(name)}"' if name else ""
+            lines.append(f"ATTENDEE{cn};RSVP=TRUE:MAILTO:{email}")
+    lines += ["END:VEVENT", "END:VCALENDAR"]
+    return "\r\n".join(lines) + "\r\n"
+
+
+def _calendar_app_add(meeting: dict) -> tuple[bool, str]:
+    """Add the event to the default macOS Calendar via AppleScript. Returns (ok, message)."""
+    try:
+        start = datetime.fromisoformat(meeting["datetime"])
+    except ValueError:
+        return False, "Invalid datetime."
+    duration_min = int(meeting.get("duration_minutes") or 60)
+    end = start + timedelta(minutes=duration_min)
+    summary = f"[{meeting['type']}] {meeting['title']}".replace('"', '\\"')
+    desc = (meeting.get("agenda") or "").replace('"', '\\"').replace("\n", "\\n")
+    location = (meeting.get("location") or "").replace('"', '\\"')
+    fmt = "%Y-%m-%dT%H:%M:%S"
+    script = f'''
+on iso_to_date(iso)
+  set y to text 1 thru 4 of iso as integer
+  set mo to text 6 thru 7 of iso as integer
+  set d to text 9 thru 10 of iso as integer
+  set h to text 12 thru 13 of iso as integer
+  set mi to text 15 thru 16 of iso as integer
+  set s to text 18 thru 19 of iso as integer
+  set theDate to current date
+  set year of theDate to y
+  set month of theDate to mo
+  set day of theDate to d
+  set hours of theDate to h
+  set minutes of theDate to mi
+  set seconds of theDate to s
+  return theDate
+end iso_to_date
+
+tell application "Calendar"
+  set defaultCal to first calendar whose writable is true
+  tell defaultCal
+    make new event with properties {{summary:"{summary}", start date:my iso_to_date("{start.strftime(fmt)}"), end date:my iso_to_date("{end.strftime(fmt)}"), description:"{desc}", location:"{location}"}}
+  end tell
+end tell
+'''
+    try:
+        res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return False, "AppleScript timed out."
+    if res.returncode != 0:
+        return False, f"AppleScript failed: {res.stderr.strip() or res.stdout.strip()}"
+    return True, "Event added to Calendar.app."
+
+
+BUCKET_DEFS = {
+    "candidate_jsons": {
+        "label": "Candidate JSONs",
+        "kind": "files",
+        "root": "candidates",
+        "glob": "**/*.json",
+        "exclude_names": {"_consolidated.json"},
+    },
+    "triage_reports": {
+        "label": "Triage reports",
+        "kind": "files",
+        "root": "triage-reports",
+        "glob": "**/*.md",
+    },
+    "approval_boards": {
+        "label": "Approval boards",
+        "kind": "files",
+        "root": "triage-reports",
+        "glob": "*_approval-board.html",
+    },
+    "draft_files": {
+        "label": "Draft files",
+        "kind": "files",
+        "root": "drafts",
+        "glob": "*.md",
+        "exclude_suffixes": (".draft_claim_log.md",),
+        "alt_roots": ["Drafts"],
+    },
+    "claim_logs": {
+        "label": "Claim logs",
+        "kind": "files",
+        "root": "drafts",
+        "glob": "*.draft_claim_log.md",
+        "alt_roots": ["Drafts"],
+    },
+    "candidate_batches": {
+        "label": "Candidate batches",
+        "kind": "dirs",
+        "root": "candidates",
+    },
+    "notes": {
+        "label": "Notes",
+        "kind": "files",
+        "root": "notes",
+        "glob": "*.md",
+    },
+    "data_updates": {
+        "label": "Data updates",
+        "kind": "files",
+        "root": "data-updates",
+        "glob": "*.md",
+    },
+    "critique_reports": {
+        "label": "Critique reports",
+        "kind": "files",
+        "root": "critiques",
+        "glob": "**/*.md",
+    },
+    "figure_rows": {
+        "label": "Figure plan",
+        "kind": "single_file",
+        "root": "figure-plan.md",
+    },
+    "meetings": {
+        "label": "Meetings",
+        "kind": "files",
+        "root": "meetings",
+        "glob": "*.md",
+    },
+}
+
+
+def _list_bucket(project: Path, bucket_key: str) -> dict:
+    spec = BUCKET_DEFS.get(bucket_key)
+    if not spec:
+        raise DashboardError(f"Unknown bucket: {bucket_key!r}")
+    kind = spec["kind"]
+    items: list[dict] = []
+    if kind == "single_file":
+        target = project / spec["root"]
+        if target.exists():
+            items.append({
+                "name": target.name,
+                "rel_path": str(target.relative_to(ROOT)),
+                "kind": "file",
+                "mtime": iso_local_ts(target.stat().st_mtime),
+            })
+        return {"bucket": bucket_key, "label": spec["label"], "items": items}
+    roots = [project / spec["root"]] + [project / r for r in spec.get("alt_roots", [])]
+    exclude_names = set(spec.get("exclude_names", set()))
+    exclude_suffixes = tuple(spec.get("exclude_suffixes", ()))
+    if kind == "dirs":
+        for root in roots:
+            if not root.exists():
+                continue
+            for child in sorted(root.iterdir()):
+                if not child.is_dir():
+                    continue
+                file_count = sum(1 for _ in child.rglob("*") if _.is_file())
+                items.append({
+                    "name": child.name,
+                    "rel_path": str(child.relative_to(ROOT)),
+                    "kind": "dir",
+                    "file_count": file_count,
+                    "mtime": iso_local_ts(child.stat().st_mtime),
+                })
+        return {"bucket": bucket_key, "label": spec["label"], "items": items}
+    # files
+    glob = spec.get("glob", "**/*")
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.glob(glob)):
+            if not path.is_file():
+                continue
+            if path.name in exclude_names:
+                continue
+            if exclude_suffixes and path.name.endswith(exclude_suffixes):
+                continue
+            items.append({
+                "name": path.name,
+                "rel_path": str(path.relative_to(ROOT)),
+                "kind": "file",
+                "size": path.stat().st_size,
+                "mtime": iso_local_ts(path.stat().st_mtime),
+            })
+    return {"bucket": bucket_key, "label": spec["label"], "items": items}
+
+
+def iso_local_ts(ts: float) -> str:
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+
+def _parse_figure_plan(path: Path) -> list[dict]:
+    """Parse the markdown table in figure-plan.md and return its rows."""
+    if not path.exists():
+        return []
+    header: list[str] | None = None
+    rows: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        if all(re.fullmatch(r":?-{3,}:?", c) for c in cells if c):
+            continue
+        if header is None:
+            header = [c.lower().replace("/", "_").replace(" ", "_") for c in cells]
+            continue
+        row = {header[i]: cells[i] if i < len(cells) else "" for i in range(len(header))}
+        if any(row.values()):
+            rows.append(row)
+    return rows
+
+
+def _slug_fragment(text: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9]+", "-", (text or "").strip().lower()).strip("-")
+    return text or "x"
+
+
+def _figure_tag(figure: str, panel: str) -> str:
+    """Build the filename prefix from figure/panel.
+
+    Examples:
+      ('Fig 1', 'A')      -> 'fig-1A'
+      ('Fig 2', '')       -> 'fig-2'
+      ('prelim', '')      -> 'prelim'
+      ('', '')            -> 'unspecified'
+    """
+    f = (figure or "").strip().lower()
+    p = (panel or "").strip()
+    if not f:
+        return "unspecified"
+    if "prelim" in f:
+        return "prelim"
+    m = re.search(r"(\d+)", f)
+    if m:
+        return f"fig-{m.group(1)}{p.upper()}"
+    return _slug_fragment(f)
+
+
+def _gdrive_path_for_project(project: Path) -> str:
+    """Return the gdrive_path frontmatter value, or '' if unset."""
+    brief = project / "Project_Brief.md"
+    if not brief.exists():
+        return ""
+    try:
+        import yaml
+        raw = brief.read_text(encoding="utf-8")
+        if not raw.startswith("---"):
+            return ""
+        parts = raw.split("---", 2)
+        if len(parts) < 3:
+            return ""
+        fm = yaml.safe_load(parts[1]) or {}
+        return str(fm.get("gdrive_path") or "").strip()
+    except Exception:
+        return ""
+
+
+def _llm_pm_folder(project: Path) -> Path:
+    gp = _gdrive_path_for_project(project)
+    if not gp:
+        raise DashboardError(
+            "Project has no `gdrive_path` set. Configure it first (Set Google Drive path)."
+        )
+    base = Path(gp).expanduser()
+    if not base.exists():
+        raise DashboardError(f"gdrive_path does not exist on disk: {base}")
+    target = base / "LLM_project_manager"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "archive").mkdir(exist_ok=True)
+    return target
+
+
+def _append_changelog(folder: Path, line: str) -> None:
+    cl = folder / "CHANGELOG.md"
+    header = ""
+    if not cl.exists():
+        header = (
+            "# LLM_project_manager — CHANGELOG\n\n"
+            "Append-only log of data files managed via the dashboard. "
+            "Do not edit past entries; reassignments and replacements add new lines.\n\n"
+        )
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with cl.open("a", encoding="utf-8") as fh:
+        if header:
+            fh.write(header)
+        fh.write(f"- {stamp}  {line}\n")
+
+
+def _canonical_filename(folder: Path, tag: str, brief: str, suffix: str) -> Path:
+    """Build a non-clobbering canonical filename: {tag}_{brief}[-N]{suffix}."""
+    brief_slug = _slug_fragment(brief) or "data"
+    base = f"{tag}_{brief_slug}"
+    candidate = folder / f"{base}{suffix}"
+    n = 2
+    while candidate.exists():
+        candidate = folder / f"{base}-{n}{suffix}"
+        n += 1
+    return candidate
+
+
+def _archive_file(folder: Path, src: Path, reason: str) -> Path:
+    """Compress `src` (which lives inside folder) into folder/archive/{name}_{ts}.zip and delete src."""
+    import zipfile
+    archive_dir = folder / "archive"
+    archive_dir.mkdir(exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    zip_path = archive_dir / f"{src.stem}_{ts}.zip"
+    n = 2
+    while zip_path.exists():
+        zip_path = archive_dir / f"{src.stem}_{ts}-{n}.zip"
+        n += 1
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+        zf.write(src, arcname=src.name)
+        zf.writestr("_archive_meta.txt", f"original: {src.name}\nreason: {reason}\narchived_at: {datetime.now().isoformat(timespec='seconds')}\n")
+    src.unlink()
+    return zip_path
+
+
+def _update_figure_plan_status(plan_path: Path, figure: str, panel: str, new_status: str) -> bool:
+    """Set the Status cell for a matching `Figure/Panel` row. Returns True if changed."""
+    if not plan_path.exists() or not new_status:
+        return False
+    lines = plan_path.read_text(encoding="utf-8").splitlines()
+    header: list[str] | None = None
+    fig_idx = status_idx = -1
+    target = f"{figure} {panel}".strip().lower() if panel else (figure or "").strip().lower()
+    target_alt = (f"{figure}{panel}".strip().lower()) if panel else target
+    changed = False
+    for i, raw in enumerate(lines):
+        stripped = raw.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        if all(re.fullmatch(r":?-{3,}:?", c) for c in cells if c):
+            continue
+        if header is None:
+            header = [c.lower() for c in cells]
+            for j, h in enumerate(header):
+                if "figure" in h:
+                    fig_idx = j
+                if "status" in h:
+                    status_idx = j
+            continue
+        if fig_idx < 0 or status_idx < 0 or fig_idx >= len(cells) or status_idx >= len(cells):
+            continue
+        cell = cells[fig_idx].strip().lower().replace(" ", "")
+        norm_target = target.replace(" ", "")
+        if cell == norm_target or cell == target_alt.replace(" ", ""):
+            cells[status_idx] = new_status
+            lines[i] = "| " + " | ".join(cells) + " |"
+            changed = True
+            break
+    if changed:
+        plan_path.write_text("\n".join(lines) + ("\n" if not plan_path.read_text(encoding="utf-8").endswith("\n") else ""), encoding="utf-8")
+    return changed
+
+
+def _require_admin_unlocked(params: dict) -> None:
+    """Verify the caller has admin privileges via PIN."""
+    cfg = _load_admin_config()
+    if not cfg.get("pin_hash"):
+        raise DashboardError("Admin PIN is not configured. Open the dashboard and set it up first.")
+    pin = (params or {}).get("admin_pin")
+    if not pin:
+        raise DashboardError("Admin PIN required.")
+    pin = _validate_pin(str(pin))
+    if not hmac.compare_digest(_hash_pin(pin, cfg.get("salt", "")), cfg.get("pin_hash", "")):
+        raise DashboardError("Incorrect admin PIN.")
+
+
 def handle_action(action_id: str, project_slug: str | None, params: dict[str, Any] | None = None) -> dict[str, Any]:
     today = datetime.now().strftime("%Y-%m-%d")
     params = params or {}
+
+    # ---- Admin (PIN) actions ----
+    if action_id.startswith("admin-"):
+        return handle_admin_action(action_id, params)
 
     # ---- Homework actions ----
     if action_id.startswith("homework-"):
@@ -403,6 +1095,997 @@ def handle_action(action_id: str, project_slug: str | None, params: dict[str, An
         result = rebuild_dashboard()
         result["reload_suggested"] = result["ok"]
         return result
+
+    # ---- List files inside a project bucket ----
+    if action_id == "list-bucket-files":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        bucket = str(params.get("bucket") or "").strip()
+        if not slug_val or not bucket:
+            raise DashboardError("Missing project_slug or bucket.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        result = _list_bucket(project, bucket)
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "command": f"list-bucket-files {slug_val}/{bucket}",
+            "stdout": json.dumps(result),
+            "stderr": "",
+            "log": "",
+        }
+
+    # ---- Open a file or folder by its repo-relative path ----
+    if action_id == "open-relative-path":
+        rel = str(params.get("rel_path") or "").strip()
+        if not rel:
+            raise DashboardError("Missing rel_path.")
+        target = ensure_inside_root(ROOT / rel)
+        if not target.exists():
+            raise DashboardError(f"Path not found: {rel}")
+        return open_path(target)
+
+    # ---- List figures parsed from figure-plan.md + existing data-updates ----
+    if action_id == "list-project-figures":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        if not slug_val:
+            raise DashboardError("Missing project_slug.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        figures = _parse_figure_plan(project / "figure-plan.md")
+        updates_dir = project / "data-updates"
+        updates: list[dict] = []
+        if updates_dir.exists():
+            for path in sorted(updates_dir.glob("*.md")):
+                fm = {}
+                try:
+                    text_block = path.read_text(encoding="utf-8")
+                    if text_block.startswith("---"):
+                        parts = text_block.split("---", 2)
+                        if len(parts) >= 3:
+                            import yaml
+                            fm = yaml.safe_load(parts[1]) or {}
+                except Exception:
+                    fm = {}
+                updates.append({
+                    "name": path.name,
+                    "rel_path": str(path.relative_to(ROOT)),
+                    "figure": str(fm.get("figure") or ""),
+                    "panel": str(fm.get("panel") or ""),
+                    "status": str(fm.get("status") or ""),
+                    "date": str(fm.get("date") or ""),
+                    "data_path": str(fm.get("data_path") or ""),
+                })
+        brief = project / "Project_Brief.md"
+        gdrive_path = ""
+        if brief.exists():
+            import yaml
+            raw = brief.read_text(encoding="utf-8")
+            if raw.startswith("---"):
+                try:
+                    fm_parts = raw.split("---", 2)
+                    fm_data = yaml.safe_load(fm_parts[1]) or {}
+                    gdrive_path = str(fm_data.get("gdrive_path") or "")
+                except Exception:
+                    gdrive_path = ""
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "command": f"list-project-figures {slug_val}",
+            "stdout": json.dumps({
+                "figures": figures,
+                "updates": updates,
+                "gdrive_path": gdrive_path,
+            }),
+            "stderr": "",
+            "log": "",
+        }
+
+    # ---- Native file/folder picker (macOS osascript) ----
+    if action_id == "pick-data-path":
+        kind = str(params.get("kind") or "file").strip()  # "file" or "folder"
+        default_dir = str(params.get("default_dir") or "").strip()
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        if slug_val:
+            slug_val = require_simple_slug(slug_val, "project_slug")
+            project = project_path(slug_val)
+            if not default_dir:
+                gp = _gdrive_path_for_project(project)
+                if gp:
+                    pm = Path(gp).expanduser() / "LLM_project_manager"
+                    default_dir = str(pm if pm.exists() else Path(gp).expanduser())
+        if not default_dir:
+            default_dir = str(Path.home())
+        default_dir_q = default_dir.replace('"', '\\"')
+        if kind == "folder":
+            osascript = f'POSIX path of (choose folder with prompt "Select folder" default location POSIX file "{default_dir_q}")'
+        else:
+            osascript = f'POSIX path of (choose file with prompt "Select data file" default location POSIX file "{default_dir_q}")'
+        try:
+            res = subprocess.run(
+                ["osascript", "-e", osascript],
+                capture_output=True, text=True, timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            raise DashboardError("File picker timed out.")
+        if res.returncode != 0:
+            # User cancelled (returncode 1) or error
+            if "User canceled" in (res.stderr or "") or res.returncode == 1:
+                return {
+                    "ok": True, "exit_code": 0,
+                    "command": "pick-data-path (cancelled)",
+                    "stdout": json.dumps({"cancelled": True}),
+                    "stderr": "", "log": "",
+                }
+            raise DashboardError(f"Picker failed: {res.stderr.strip() or 'unknown error'}")
+        picked = res.stdout.strip()
+        return {
+            "ok": True, "exit_code": 0,
+            "command": f"pick-data-path -> {picked}",
+            "stdout": json.dumps({"path": picked, "cancelled": False}),
+            "stderr": "", "log": "",
+        }
+
+    # ---- Set / update the project's gdrive_path frontmatter ----
+    if action_id == "set-project-gdrive-path":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        if not slug_val:
+            raise DashboardError("Missing project_slug.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        brief = project / "Project_Brief.md"
+        if not brief.exists():
+            raise DashboardError("Project_Brief.md not found.")
+        new_path = str(params.get("gdrive_path") or "").strip()
+        if not new_path:
+            raise DashboardError("gdrive_path is empty.")
+        if not Path(new_path).expanduser().exists():
+            raise DashboardError(f"Path does not exist: {new_path}")
+        # Rewrite frontmatter
+        raw = brief.read_text(encoding="utf-8")
+        if not raw.startswith("---"):
+            raise DashboardError("Project_Brief.md has no YAML frontmatter.")
+        parts = raw.split("---", 2)
+        if len(parts) < 3:
+            raise DashboardError("Malformed frontmatter.")
+        fm_lines = parts[1].splitlines()
+        new_lines = [ln for ln in fm_lines if not ln.startswith("gdrive_path:")]
+        while new_lines and not new_lines[-1].strip():
+            new_lines.pop()
+        new_lines.append(f'gdrive_path: "{new_path}"')
+        rebuilt = "---\n" + "\n".join(new_lines) + "\n---" + parts[2]
+        brief.write_text(rebuilt, encoding="utf-8")
+        # Create the LLM_project_manager subfolder and changelog
+        pm = Path(new_path).expanduser() / "LLM_project_manager"
+        pm.mkdir(parents=True, exist_ok=True)
+        (pm / "archive").mkdir(exist_ok=True)
+        _append_changelog(pm, f"SETUP  gdrive_path set for project {slug_val}")
+        rebuild_dashboard()
+        return {
+            "ok": True, "exit_code": 0,
+            "command": f"set-project-gdrive-path {slug_val}",
+            "stdout": f"Set gdrive_path = {new_path}\nCreated: {pm}",
+            "stderr": "", "log": "",
+            "reload_suggested": True,
+        }
+
+    # ---- Bulk renumber figures across all data-updates + figure-plan ----
+    if action_id == "renumber-figures":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        if not slug_val:
+            raise DashboardError("Missing project_slug.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        raw_mapping = params.get("mapping")
+        if not isinstance(raw_mapping, dict) or not raw_mapping:
+            raise DashboardError("`mapping` must be a non-empty object like {'Fig 1': 'Fig 2'}.")
+        mapping = {str(k).strip(): str(v).strip() for k, v in raw_mapping.items() if str(k).strip() and str(v).strip()}
+        reason = str(params.get("reason") or "").strip() or "bulk renumber"
+        pm_folder = _llm_pm_folder(project)
+        # Pass 1: update .md frontmatter + collect file renames using temp suffix
+        import yaml
+        updates_dir = project / "data-updates"
+        renames: list[tuple[Path, Path]] = []
+        affected: list[str] = []
+        if updates_dir.exists():
+            for md_path in sorted(updates_dir.glob("*.md")):
+                raw = md_path.read_text(encoding="utf-8")
+                if not raw.startswith("---"):
+                    continue
+                parts = raw.split("---", 2)
+                fm = yaml.safe_load(parts[1]) or {}
+                fig = str(fm.get("figure") or "").strip()
+                panel = str(fm.get("panel") or "").strip()
+                if fig not in mapping:
+                    continue
+                old_tag = _figure_tag(fig, panel)
+                new_fig = mapping[fig]
+                new_tag = _figure_tag(new_fig, panel)
+                fm["figure"] = new_fig
+                old_path_str = str(fm.get("data_path") or "")
+                if old_path_str:
+                    old_file = Path(old_path_str).expanduser()
+                    if old_file.exists() and old_file.parent.resolve() == pm_folder.resolve():
+                        stem = old_file.stem
+                        brief_slug = stem.split("_", 1)[1] if "_" in stem else stem
+                        temp_name = pm_folder / f".__renumber_tmp_{md_path.stem}{old_file.suffix}"
+                        old_file.rename(temp_name)
+                        final = _canonical_filename(pm_folder, new_tag, brief_slug, old_file.suffix)
+                        renames.append((temp_name, final))
+                        fm["data_path"] = str(final)
+                new_fm_text = "\n".join(
+                    f"{k}: {json.dumps(v, ensure_ascii=False)}" if isinstance(v, str) else f"{k}: {v}"
+                    for k, v in fm.items()
+                )
+                md_path.write_text("---\n" + new_fm_text + "\n---" + parts[2], encoding="utf-8")
+                affected.append(f"{md_path.name}: \"{fig}\" → \"{new_fig}\"")
+        # Pass 2: rename temp files to final names
+        for tmp, final in renames:
+            tmp.rename(final)
+        # Update figure-plan.md
+        plan = project / "figure-plan.md"
+        plan_changes = 0
+        if plan.exists():
+            lines = plan.read_text(encoding="utf-8").splitlines()
+            header: list[str] | None = None
+            fig_idx = -1
+            for i, raw_line in enumerate(lines):
+                stripped = raw_line.strip()
+                if not stripped.startswith("|"):
+                    continue
+                cells = [c.strip() for c in stripped.strip("|").split("|")]
+                if all(re.fullmatch(r":?-{3,}:?", c) for c in cells if c):
+                    continue
+                if header is None:
+                    header = [c.lower() for c in cells]
+                    for j, h in enumerate(header):
+                        if "figure" in h:
+                            fig_idx = j; break
+                    continue
+                if fig_idx < 0 or fig_idx >= len(cells):
+                    continue
+                cell = cells[fig_idx]
+                for old_fig, new_fig in mapping.items():
+                    if cell.lower().startswith(old_fig.lower()):
+                        cells[fig_idx] = new_fig + cell[len(old_fig):]
+                        lines[i] = "| " + " | ".join(cells) + " |"
+                        plan_changes += 1
+                        break
+            if plan_changes:
+                plan.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # CHANGELOG
+        for line in affected:
+            _append_changelog(pm_folder, f"RENUMBER  {line}  reason: \"{reason}\"")
+        if plan_changes:
+            _append_changelog(pm_folder, f"RENUMBER  figure-plan.md: {plan_changes} row(s) updated")
+        rebuild_dashboard()
+        return {
+            "ok": True, "exit_code": 0,
+            "command": f"renumber-figures {slug_val}",
+            "stdout": json.dumps({
+                "data_updates_changed": len(affected),
+                "figure_plan_rows_changed": plan_changes,
+                "affected": affected,
+            }),
+            "stderr": "", "log": "",
+            "reload_suggested": True,
+        }
+
+    # ---- List archived data zips for a project ----
+    if action_id == "list-archive":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        if not slug_val:
+            raise DashboardError("Missing project_slug.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        try:
+            pm_folder = _llm_pm_folder(project)
+        except DashboardError:
+            return {
+                "ok": True, "exit_code": 0,
+                "command": "list-archive (no gdrive_path)",
+                "stdout": json.dumps({"items": [], "configured": False}),
+                "stderr": "", "log": "",
+            }
+        archive_dir = pm_folder / "archive"
+        items = []
+        if archive_dir.exists():
+            for z in sorted(archive_dir.glob("*.zip"), reverse=True):
+                items.append({
+                    "name": z.name,
+                    "abs_path": str(z),
+                    "size": z.stat().st_size,
+                    "mtime": iso_local_ts(z.stat().st_mtime),
+                })
+        return {
+            "ok": True, "exit_code": 0,
+            "command": f"list-archive {slug_val}",
+            "stdout": json.dumps({"items": items, "configured": True}),
+            "stderr": "", "log": "",
+        }
+
+    # ---- Restore an archived data file back to LLM_project_manager/ ----
+    if action_id == "restore-archive":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        abs_zip = str(params.get("zip_path") or "").strip()
+        if not (slug_val and abs_zip):
+            raise DashboardError("Missing project_slug or zip_path.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        pm_folder = _llm_pm_folder(project)
+        zip_path = Path(abs_zip).expanduser()
+        if not zip_path.exists() or not zip_path.is_file():
+            raise DashboardError(f"Archive not found: {abs_zip}")
+        if zip_path.parent.resolve() != (pm_folder / "archive").resolve():
+            raise DashboardError("Refusing to restore a zip outside this project's archive folder.")
+        import zipfile
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = [n for n in zf.namelist() if n != "_archive_meta.txt"]
+            if not names:
+                raise DashboardError("Archive is empty.")
+            inner = names[0]
+            target = pm_folder / inner
+            if target.exists():
+                ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+                stem = Path(inner).stem
+                suffix = Path(inner).suffix
+                target = pm_folder / f"{stem}_restored_{ts}{suffix}"
+            with zf.open(inner) as src, target.open("wb") as out:
+                shutil.copyfileobj(src, out)
+        _append_changelog(pm_folder, f"RESTORE  {target.name}  from archive {zip_path.name}")
+        return {
+            "ok": True, "exit_code": 0,
+            "command": f"restore-archive {zip_path.name}",
+            "stdout": json.dumps({
+                "restored_path": str(target),
+                "name": target.name,
+            }),
+            "stderr": "", "log": "",
+        }
+
+    # ---- Meeting types config ----
+    if action_id == "list-meeting-types":
+        return {
+            "ok": True, "exit_code": 0,
+            "command": "list-meeting-types",
+            "stdout": json.dumps({"types": _load_meeting_types()}),
+            "stderr": "", "log": "",
+        }
+    if action_id == "add-meeting-type":
+        name = str(params.get("name") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{2,32}", name):
+            raise DashboardError("Meeting type must be 2–32 chars (letters, digits, _, -).")
+        types = _load_meeting_types()
+        if name in types:
+            return {
+                "ok": True, "exit_code": 0,
+                "command": f"add-meeting-type {name}",
+                "stdout": json.dumps({"types": types, "added": False}),
+                "stderr": "", "log": "",
+            }
+        types.append(name)
+        _save_meeting_types(types)
+        return {
+            "ok": True, "exit_code": 0,
+            "command": f"add-meeting-type {name}",
+            "stdout": json.dumps({"types": types, "added": True}),
+            "stderr": "", "log": "",
+        }
+
+    # ---- Create a new meeting (writes .md + .ics, adds to macOS Calendar) ----
+    if action_id == "create-meeting":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        if not slug_val:
+            raise DashboardError("Missing project_slug.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        meeting_type = str(params.get("type") or "").strip()
+        title = str(params.get("title") or "").strip() or f"{meeting_type} meeting"
+        datetime_str = str(params.get("datetime") or "").strip()
+        duration = int(params.get("duration_minutes") or 60)
+        location = str(params.get("location") or "").strip()
+        agenda = str(params.get("agenda") or "").strip()
+        attendees_in = params.get("attendees") or []
+        add_to_calendar = bool(params.get("add_to_calendar"))
+        if meeting_type not in _load_meeting_types():
+            raise DashboardError(f"Unknown meeting type: {meeting_type!r}. Add it first.")
+        try:
+            dt_obj = datetime.fromisoformat(datetime_str)
+        except ValueError:
+            raise DashboardError("Invalid datetime (expected ISO format like 2026-06-01T14:00).")
+        if duration < 5 or duration > 24 * 60:
+            raise DashboardError("Duration must be 5–1440 minutes.")
+        attendees: list[dict] = []
+        if isinstance(attendees_in, list):
+            for a in attendees_in:
+                if not isinstance(a, dict):
+                    continue
+                name = str(a.get("name") or "").strip()
+                email = str(a.get("email") or "").strip()
+                if not (name or email):
+                    continue
+                if email and ("@" not in email or " " in email):
+                    raise DashboardError(f"Invalid attendee email: {email!r}")
+                attendees.append({"name": name or email, "email": email})
+        meetings_dir = project / "meetings"
+        meetings_dir.mkdir(parents=True, exist_ok=True)
+        date_part = dt_obj.strftime("%Y-%m-%d-%H%M")
+        stem_base = f"{date_part}-{meeting_type}-{_slug_fragment(title)}"
+        stem = stem_base
+        n = 2
+        while (meetings_dir / f"{stem}.md").exists():
+            stem = f"{stem_base}-{n}"
+            n += 1
+        md_path = meetings_dir / f"{stem}.md"
+        ics_path = meetings_dir / f"{stem}.ics"
+        uid = f"{stem}-{secrets.token_hex(4)}@llm-wiki.local"
+        def _yaml_str(s: str) -> str:
+            return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        attendees_yaml = ""
+        if attendees:
+            attendees_yaml = "attendees:\n" + "".join(
+                f"  - name: {_yaml_str(a['name'])}\n    email: {_yaml_str(a['email'])}\n"
+                for a in attendees
+            )
+        body = (
+            "---\n"
+            f"type: {meeting_type}\n"
+            f"title: {_yaml_str(title)}\n"
+            f"datetime: {dt_obj.isoformat(timespec='minutes')}\n"
+            f"duration_minutes: {duration}\n"
+            f"location: {_yaml_str(location)}\n"
+            f"uid: {uid}\n"
+            f"project_slug: {slug_val}\n"
+            f"{attendees_yaml}"
+            f"ics_path: {_yaml_str(str(ics_path.relative_to(ROOT)))}\n"
+            "confidential_tier: local-only\n"
+            "---\n\n"
+            f"# {title}\n\n"
+            f"_Type:_ **{meeting_type}**  ·  _When:_ {dt_obj.strftime('%Y-%m-%d %H:%M')}  ·  _Duration:_ {duration} min"
+            f"{('  ·  _Where:_ ' + location) if location else ''}\n\n"
+            "## Agenda\n\n"
+            f"{agenda or '_(none provided)_'}\n\n"
+            "## Notes (history — append-only)\n\n"
+            "_No notes yet. Use \"+ Add note\" from the dashboard._\n"
+        )
+        md_path.write_text(body, encoding="utf-8")
+        meeting_obj = {
+            "uid": uid,
+            "type": meeting_type,
+            "title": title,
+            "datetime": dt_obj.isoformat(timespec="seconds"),
+            "duration_minutes": duration,
+            "location": location,
+            "agenda": agenda,
+            "attendees": attendees,
+        }
+        ics_path.write_text(_build_ics(meeting_obj), encoding="utf-8")
+        cal_ok, cal_msg = (False, "Skipped (add_to_calendar=False)")
+        if add_to_calendar:
+            cal_ok, cal_msg = _calendar_app_add(meeting_obj)
+        # Build a mailto URL the UI can open (with .ics attached only manually — mailto can't attach).
+        recipients = ",".join(a["email"] for a in attendees if a.get("email"))
+        mail_subject = f"[{meeting_type}] {title} — {dt_obj.strftime('%Y-%m-%d %H:%M')}"
+        mail_body_parts = [
+            f"Meeting: {title}",
+            f"Type: {meeting_type}",
+            f"When: {dt_obj.strftime('%Y-%m-%d %H:%M')} ({duration} min)",
+        ]
+        if location:
+            mail_body_parts.append(f"Where: {location}")
+        if agenda:
+            mail_body_parts.append("")
+            mail_body_parts.append("Agenda:")
+            mail_body_parts.append(agenda)
+        mail_body_parts += ["", f"Calendar invite (.ics) attached separately: {ics_path.name}"]
+        mailto = ""
+        if recipients:
+            from urllib.parse import quote
+            mailto = f"mailto:{recipients}?subject={quote(mail_subject)}&body={quote(chr(10).join(mail_body_parts))}"
+        rebuild_dashboard()
+        return {
+            "ok": True, "exit_code": 0,
+            "command": f"create-meeting {slug_val}/{stem}",
+            "stdout": json.dumps({
+                "rel_path": str(md_path.relative_to(ROOT)),
+                "ics_rel_path": str(ics_path.relative_to(ROOT)),
+                "calendar_added": cal_ok,
+                "calendar_message": cal_msg,
+                "mailto_url": mailto,
+            }),
+            "stderr": "", "log": "",
+            "reload_suggested": True,
+        }
+
+    # ---- List meetings for a project ----
+    if action_id == "list-meetings":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        if not slug_val:
+            raise DashboardError("Missing project_slug.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        meetings_dir = project / "meetings"
+        items = []
+        if meetings_dir.exists():
+            import yaml
+            for md_path in sorted(meetings_dir.glob("*.md")):
+                try:
+                    raw = md_path.read_text(encoding="utf-8")
+                    fm = {}
+                    if raw.startswith("---"):
+                        parts = raw.split("---", 2)
+                        if len(parts) >= 3:
+                            fm = yaml.safe_load(parts[1]) or {}
+                    items.append({
+                        "name": md_path.name,
+                        "rel_path": str(md_path.relative_to(ROOT)),
+                        "type": str(fm.get("type") or ""),
+                        "title": str(fm.get("title") or ""),
+                        "datetime": str(fm.get("datetime") or ""),
+                        "duration_minutes": int(fm.get("duration_minutes") or 60),
+                        "location": str(fm.get("location") or ""),
+                        "attendees": fm.get("attendees") or [],
+                        "ics_rel_path": str(fm.get("ics_path") or ""),
+                    })
+                except Exception:
+                    continue
+        items.sort(key=lambda m: m["datetime"], reverse=True)
+        return {
+            "ok": True, "exit_code": 0,
+            "command": f"list-meetings {slug_val}",
+            "stdout": json.dumps({"items": items}),
+            "stderr": "", "log": "",
+        }
+
+    # ---- Add a note to an existing meeting (append-only history) ----
+    if action_id == "add-meeting-note":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        rel = str(params.get("meeting_rel_path") or "").strip()
+        note_text = str(params.get("note") or "").strip()
+        author = str(params.get("author") or "").strip()
+        if not (slug_val and rel and note_text):
+            raise DashboardError("Missing project_slug, meeting_rel_path, or note.")
+        md_path = ensure_inside_root(ROOT / rel)
+        if not md_path.exists():
+            raise DashboardError(f"Meeting file not found: {rel}")
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        section = f"\n\n### Note — {stamp}{(' (' + author + ')') if author else ''}\n\n{note_text}\n"
+        with md_path.open("a", encoding="utf-8") as fh:
+            fh.write(section)
+        return {
+            "ok": True, "exit_code": 0,
+            "command": f"add-meeting-note {md_path.name}",
+            "stdout": json.dumps({"rel_path": str(md_path.relative_to(ROOT)), "appended_at": stamp}),
+            "stderr": "", "log": "",
+            "reload_suggested": True,
+        }
+
+    # ---- List sync proposals (Phase 3) ----
+    if action_id == "list-sync-proposals":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        if not slug_val:
+            raise DashboardError("Missing project_slug.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        spd = project / "sync-proposals"
+        items = []
+        if spd.exists():
+            for md_path in sorted(spd.glob("*.md"), reverse=True):
+                kind = "data-sync" if md_path.name.startswith("data-sync") else (
+                    "meeting-sync" if md_path.name.startswith("meeting-sync") else "other")
+                # Try to extract the JSON block
+                raw = md_path.read_text(encoding="utf-8")
+                actions_parsed = []
+                m = re.search(r"```json\s*(\[[\s\S]*?\])\s*```", raw)
+                if m:
+                    try:
+                        actions_parsed = json.loads(m.group(1))
+                    except json.JSONDecodeError:
+                        actions_parsed = []
+                items.append({
+                    "name": md_path.name,
+                    "rel_path": str(md_path.relative_to(ROOT)),
+                    "kind": kind,
+                    "mtime": iso_local_ts(md_path.stat().st_mtime),
+                    "action_count": len(actions_parsed) if isinstance(actions_parsed, list) else 0,
+                    "actions": actions_parsed if isinstance(actions_parsed, list) else [],
+                })
+        return {
+            "ok": True, "exit_code": 0,
+            "command": f"list-sync-proposals {slug_val}",
+            "stdout": json.dumps({"items": items}),
+            "stderr": "", "log": "",
+        }
+
+    # ---- Apply selected items from a sync proposal ----
+    if action_id == "apply-sync-proposal":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        rel = str(params.get("proposal_rel_path") or "").strip()
+        selected_ids = params.get("selected_ids") or []
+        if not (slug_val and rel and isinstance(selected_ids, list) and selected_ids):
+            raise DashboardError("Missing project_slug, proposal_rel_path, or selected_ids.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        proposal_path = ensure_inside_root(ROOT / rel)
+        if not proposal_path.exists():
+            raise DashboardError(f"Proposal not found: {rel}")
+        raw = proposal_path.read_text(encoding="utf-8")
+        m = re.search(r"```json\s*(\[[\s\S]*?\])\s*```", raw)
+        if not m:
+            raise DashboardError("No JSON block in proposal.")
+        try:
+            all_items = json.loads(m.group(1))
+        except json.JSONDecodeError as exc:
+            raise DashboardError(f"Malformed JSON in proposal: {exc}")
+        selected = [a for a in all_items if a.get("id") in selected_ids]
+        if not selected:
+            raise DashboardError("Selected items not found in proposal.")
+        applied: list[str] = []
+        skipped: list[str] = []
+        today = datetime.now().strftime("%Y-%m-%d")
+        figure_plan = project / "figure-plan.md"
+        exp_roadmap = project / "experiment-roadmap.md"
+        decision_log = project / "Decision_Log.md"
+        for action in selected:
+            kind = str(action.get("action") or "")
+            aid = str(action.get("id") or "?")
+            try:
+                if kind == "figure_plan_status_update":
+                    changed = _update_figure_plan_status(
+                        figure_plan, str(action.get("figure") or ""),
+                        str(action.get("panel") or ""), str(action.get("new_status") or ""),
+                    )
+                    (applied if changed else skipped).append(f"{aid} {kind} (changed={changed})")
+                elif kind == "experiment_roadmap_status_update":
+                    if not exp_roadmap.exists():
+                        skipped.append(f"{aid} {kind} (no experiment-roadmap.md)")
+                        continue
+                    # Reuse the same row-matcher but for experiment column = first column.
+                    target = str(action.get("experiment") or "").strip()
+                    new_status = str(action.get("new_status") or "").strip()
+                    lines = exp_roadmap.read_text(encoding="utf-8").splitlines()
+                    header = None; first_col = -1; status_idx = -1
+                    changed_local = False
+                    for i, line in enumerate(lines):
+                        stripped = line.strip()
+                        if not stripped.startswith("|"):
+                            continue
+                        cells = [c.strip() for c in stripped.strip("|").split("|")]
+                        if all(re.fullmatch(r":?-{3,}:?", c) for c in cells if c):
+                            continue
+                        if header is None:
+                            header = [c.lower() for c in cells]
+                            first_col = 0
+                            for j, h in enumerate(header):
+                                if "status" in h: status_idx = j
+                            continue
+                        if status_idx < 0 or first_col >= len(cells) or status_idx >= len(cells):
+                            continue
+                        if cells[first_col].lower() == target.lower():
+                            cells[status_idx] = new_status
+                            lines[i] = "| " + " | ".join(cells) + " |"
+                            changed_local = True
+                            break
+                    if changed_local:
+                        exp_roadmap.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                        applied.append(f"{aid} {kind}")
+                    else:
+                        skipped.append(f"{aid} {kind} (no row matched {target!r})")
+                elif kind == "decision_log_append":
+                    entry = str(action.get("entry") or "").strip()
+                    if not entry:
+                        skipped.append(f"{aid} {kind} (empty entry)")
+                        continue
+                    decision_log.parent.mkdir(parents=True, exist_ok=True)
+                    if not decision_log.exists():
+                        decision_log.write_text("---\nconfidential_tier: local-only\n---\n\n# Decision Log\n\n", encoding="utf-8")
+                    with decision_log.open("a", encoding="utf-8") as fh:
+                        fh.write(f"- **{today}** — {entry}  _(from sync proposal {proposal_path.name}, id {aid})_\n")
+                    applied.append(f"{aid} {kind}")
+                elif kind == "figure_plan_add_row":
+                    if not figure_plan.exists():
+                        skipped.append(f"{aid} {kind} (no figure-plan.md)")
+                        continue
+                    fig = str(action.get("figure") or "").strip()
+                    panel = str(action.get("panel") or "").strip()
+                    claim = str(action.get("claim") or "").strip()
+                    row = f"| {fig}{(' ' + panel) if panel else ''} | {claim} |  | planned | unknown |  |  |"
+                    with figure_plan.open("a", encoding="utf-8") as fh:
+                        fh.write(row + "\n")
+                    applied.append(f"{aid} {kind}")
+                elif kind == "experiment_roadmap_add_row":
+                    if not exp_roadmap.exists():
+                        skipped.append(f"{aid} {kind} (no experiment-roadmap.md)")
+                        continue
+                    exp = str(action.get("experiment") or "").strip()
+                    purpose = str(action.get("purpose") or "").strip()
+                    row = f"| {exp} | {purpose} | planned |  |  |"
+                    with exp_roadmap.open("a", encoding="utf-8") as fh:
+                        fh.write(row + "\n")
+                    applied.append(f"{aid} {kind}")
+                elif kind == "note":
+                    skipped.append(f"{aid} note (informational only)")
+                else:
+                    skipped.append(f"{aid} {kind} (unknown action)")
+            except Exception as exc:
+                skipped.append(f"{aid} {kind} (error: {exc})")
+        # Mark proposal applied: append an "## Applied" section
+        with proposal_path.open("a", encoding="utf-8") as fh:
+            fh.write(
+                f"\n\n## Applied — {datetime.now().isoformat(timespec='seconds')}\n\n"
+                f"- Applied: {', '.join(applied) if applied else '_(none)_'}\n"
+                f"- Skipped: {', '.join(skipped) if skipped else '_(none)_'}\n"
+            )
+        rebuild_dashboard()
+        return {
+            "ok": True, "exit_code": 0,
+            "command": f"apply-sync-proposal {proposal_path.name}",
+            "stdout": json.dumps({"applied": applied, "skipped": skipped}),
+            "stderr": "", "log": "",
+            "reload_suggested": True,
+        }
+
+    # ---- Reassign a data-update to a different figure/panel ----
+    if action_id == "reassign-data-update":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        rel = str(params.get("update_rel_path") or "").strip()
+        new_figure = str(params.get("new_figure") or "").strip()
+        new_panel = str(params.get("new_panel") or "").strip()
+        reason = str(params.get("reason") or "").strip()
+        if not (slug_val and rel and new_figure):
+            raise DashboardError("Missing project_slug, update_rel_path, or new_figure.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        update_path = ensure_inside_root(ROOT / rel)
+        if not update_path.exists():
+            raise DashboardError(f"Update file not found: {rel}")
+        # Read existing frontmatter
+        import yaml
+        raw = update_path.read_text(encoding="utf-8")
+        if not raw.startswith("---"):
+            raise DashboardError("Update file has no frontmatter.")
+        parts = raw.split("---", 2)
+        fm = yaml.safe_load(parts[1]) or {}
+        old_fig = str(fm.get("figure") or "")
+        old_panel = str(fm.get("panel") or "")
+        old_data_path = str(fm.get("data_path") or "")
+        # Rename the actual data file if it lives under LLM_project_manager/
+        pm = _llm_pm_folder(project)
+        new_tag = _figure_tag(new_figure, new_panel)
+        new_data_path_str = old_data_path
+        renamed_note = ""
+        if old_data_path:
+            old_file = Path(old_data_path).expanduser()
+            if old_file.exists() and old_file.parent.resolve() == pm.resolve():
+                # Derive the brief slug from existing filename (strip old tag prefix)
+                stem = old_file.stem
+                if "_" in stem:
+                    brief_slug = stem.split("_", 1)[1]
+                else:
+                    brief_slug = stem
+                new_file = _canonical_filename(pm, new_tag, brief_slug, old_file.suffix)
+                old_file.rename(new_file)
+                new_data_path_str = str(new_file)
+                renamed_note = f"; file renamed {old_file.name} → {new_file.name}"
+        fm["figure"] = new_figure
+        fm["panel"] = new_panel
+        fm["data_path"] = new_data_path_str
+        new_fm = "\n".join(f"{k}: {json.dumps(v, ensure_ascii=False)}" if isinstance(v, str) else f"{k}: {v}" for k, v in fm.items())
+        rebuilt = "---\n" + new_fm + "\n---" + parts[2]
+        update_path.write_text(rebuilt, encoding="utf-8")
+        # Update figure-plan.md status row? Keep status unchanged. Just log.
+        _update_figure_plan_status(project / "figure-plan.md", new_figure, new_panel, str(fm.get("status") or ""))
+        _append_changelog(
+            pm,
+            f"REASSIGN  {update_path.relative_to(ROOT)}  figure: \"{old_fig}/{old_panel}\" → \"{new_figure}/{new_panel}\"  reason: \"{reason}\"{renamed_note}",
+        )
+        rebuild_dashboard()
+        return {
+            "ok": True, "exit_code": 0,
+            "command": f"reassign-data-update {update_path.name}",
+            "stdout": json.dumps({
+                "rel_path": str(update_path.relative_to(ROOT)),
+                "new_data_path": new_data_path_str,
+                "renamed": bool(renamed_note),
+            }),
+            "stderr": "", "log": "",
+            "reload_suggested": True,
+        }
+
+    # ---- Append a new data update under projects/{slug}/data-updates/ ----
+    if action_id == "add-data-update":
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        if not slug_val:
+            raise DashboardError("Missing project_slug for add-data-update.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        if not (project / "Project_Brief.md").exists():
+            raise DashboardError(f"Project_Brief.md not found for {slug_val}.")
+        figure = str(params.get("figure") or "").strip()
+        panel = str(params.get("panel") or "").strip()
+        status_val = str(params.get("status") or "").strip()
+        brief_desc = str(params.get("brief_description") or "").strip()
+        source_file = str(params.get("source_file") or "").strip()
+        legend = str(params.get("legend") or "").strip()
+        what_changed = str(params.get("what_changed") or "").strip()
+        interpretation = str(params.get("interpretation") or "").strip()
+        concerns = str(params.get("concerns") or "").strip()
+        next_step = str(params.get("next_step") or "").strip()
+        mode = str(params.get("mode") or "new").strip()
+        existing_update_rel = str(params.get("existing_update_rel_path") or "").strip()
+        valid_status = {"planned", "in_progress", "data_collected", "analyzed", "drafted", "complete", "dropped", ""}
+        if status_val not in valid_status:
+            raise DashboardError(f"Invalid status: {status_val!r}.")
+        if not brief_desc:
+            raise DashboardError("`brief_description` is required (3–6 words for the filename).")
+        # Resolve LLM_project_manager folder (raises if gdrive_path missing)
+        pm_folder = _llm_pm_folder(project)
+        tag = _figure_tag(figure, panel)
+        canonical = None
+        archived_zip = None
+        # Branch by mode
+        if mode == "existing" and existing_update_rel:
+            # Replace data file inside an existing data-update record.
+            existing_path = ensure_inside_root(ROOT / existing_update_rel)
+            if not existing_path.exists():
+                raise DashboardError(f"Existing update not found: {existing_update_rel}")
+            import yaml
+            raw = existing_path.read_text(encoding="utf-8")
+            if not raw.startswith("---"):
+                raise DashboardError("Existing update has no frontmatter.")
+            parts = raw.split("---", 2)
+            fm = yaml.safe_load(parts[1]) or {}
+            old_data_path = str(fm.get("data_path") or "")
+            if not source_file:
+                raise DashboardError("source_file is required when replacing an existing data file.")
+            src = Path(source_file).expanduser()
+            if not src.exists() or not src.is_file():
+                raise DashboardError(f"Source file not found: {source_file}")
+            # Archive the previous file if it lives under LLM_project_manager/
+            if old_data_path:
+                old_file = Path(old_data_path).expanduser()
+                if old_file.exists() and old_file.parent.resolve() == pm_folder.resolve():
+                    archived_zip = _archive_file(pm_folder, old_file, reason=f"replaced via data-update (n+); ref {existing_path.name}")
+            # Move new file into canonical location (resolve to figure/panel from the record if user didn't change)
+            target_figure = figure or str(fm.get("figure") or "")
+            target_panel = panel or str(fm.get("panel") or "")
+            tag = _figure_tag(target_figure, target_panel)
+            canonical = _canonical_filename(pm_folder, tag, brief_desc, src.suffix)
+            shutil.move(str(src), str(canonical))
+            # Append a new note section to the existing .md (history within the file)
+            today = datetime.now().strftime("%Y-%m-%d %H:%M")
+            append_block = (
+                f"\n\n## Data Update — {today}\n\n"
+                f"- new data file: `{canonical.name}`\n"
+                + (f"- previous archived as: `{archived_zip.relative_to(pm_folder)}`\n" if archived_zip else "")
+                + (f"- what changed: {what_changed}\n" if what_changed else "")
+                + (f"- interpretation: {interpretation}\n" if interpretation else "")
+                + (f"- concerns: {concerns}\n" if concerns else "")
+                + (f"- next step: {next_step}\n" if next_step else "")
+            )
+            # Update frontmatter fields
+            fm["status"] = status_val or fm.get("status") or "in_progress"
+            fm["data_path"] = str(canonical)
+            fm["figure"] = target_figure
+            fm["panel"] = target_panel
+            new_fm_text = "\n".join(
+                f"{k}: {json.dumps(v, ensure_ascii=False)}" if isinstance(v, str) else f"{k}: {v}"
+                for k, v in fm.items()
+            )
+            rebuilt = "---\n" + new_fm_text + "\n---" + parts[2].rstrip() + append_block
+            existing_path.write_text(rebuilt, encoding="utf-8")
+            target_md = existing_path
+            _append_changelog(
+                pm_folder,
+                f"UPDATE   {target_md.relative_to(ROOT)}  data_path → {canonical.name}"
+                + (f"  archived: {archived_zip.name}" if archived_zip else ""),
+            )
+        else:
+            # New data update: create a fresh .md, move the source file in.
+            if not figure and not status_val.startswith("planned") and not (brief_desc and tag == "prelim"):
+                # Allow blank figure → tag = unspecified
+                pass
+            updates_dir = project / "data-updates"
+            updates_dir.mkdir(parents=True, exist_ok=True)
+            today_date = datetime.now().strftime("%Y-%m-%d")
+            stem_base = f"{today_date}-{tag}_{_slug_fragment(brief_desc)}"
+            stem = stem_base
+            n = 2
+            while (updates_dir / f"{stem}.md").exists():
+                stem = f"{stem_base}-{n}"
+                n += 1
+            target_md = updates_dir / f"{stem}.md"
+            if source_file:
+                src = Path(source_file).expanduser()
+                if not src.exists() or not src.is_file():
+                    raise DashboardError(f"Source file not found: {source_file}")
+                canonical = _canonical_filename(pm_folder, tag, brief_desc, src.suffix)
+                shutil.move(str(src), str(canonical))
+            def _yaml_str(s: str) -> str:
+                return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+            body = (
+                "---\n"
+                f"date: {today_date}\n"
+                f"project_slug: {slug_val}\n"
+                f"figure: {_yaml_str(figure)}\n"
+                f"panel: {_yaml_str(panel)}\n"
+                f"status: {status_val or 'in_progress'}\n"
+                f"brief_description: {_yaml_str(brief_desc)}\n"
+                f"data_path: {_yaml_str(str(canonical) if canonical else '')}\n"
+                "confidential_tier: local-only\n"
+                "---\n\n"
+                f"# Data Update: {tag}_{_slug_fragment(brief_desc)}\n\n"
+                "## Brief Legend\n\n"
+                f"{legend or '_(none provided)_'}\n\n"
+                "## What Changed\n\n"
+                f"{what_changed or '_(none provided)_'}\n\n"
+                "## Current Interpretation\n\n"
+                f"{interpretation or '_(none provided)_'}\n\n"
+                "## Concerns or Failure Modes\n\n"
+                f"{concerns or '_(none provided)_'}\n\n"
+                "## Next Step\n\n"
+                f"{next_step or '_(none provided)_'}\n"
+            )
+            target_md.write_text(body, encoding="utf-8")
+            _append_changelog(
+                pm_folder,
+                f"CREATE   {target_md.relative_to(ROOT)}"
+                + (f"  data: {canonical.name}" if canonical else "  (no file moved)"),
+            )
+        plan_updated = False
+        if status_val:
+            plan_updated = _update_figure_plan_status(project / "figure-plan.md", figure, panel, status_val)
+        rebuild_dashboard()
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "command": f"add-data-update {slug_val}/{target_md.name}",
+            "stdout": json.dumps({
+                "rel_path": str(target_md.relative_to(ROOT)),
+                "data_file": str(canonical) if canonical else "",
+                "archived_zip": str(archived_zip) if archived_zip else "",
+                "figure_plan_status_updated": plan_updated,
+            }),
+            "stderr": "",
+            "log": "",
+            "reload_suggested": True,
+        }
+
+    # ---- Update project managers (admin mode, PIN-protected) ----
+    if action_id == "update-managers":
+        _require_admin_unlocked(params)
+        slug_val = str(params.get("project_slug") or project_slug or "").strip()
+        if not slug_val:
+            raise DashboardError("Missing project_slug for update-managers.")
+        slug_val = require_simple_slug(slug_val, "project_slug")
+        project = project_path(slug_val)
+        brief = project / "Project_Brief.md"
+        if not brief.exists():
+            raise DashboardError(f"Project_Brief.md not found for {slug_val}.")
+        raw_managers = params.get("managers")
+        if not isinstance(raw_managers, list):
+            raise DashboardError("`managers` must be a list of {name, email} objects.")
+        cleaned: list[dict[str, str]] = []
+        for entry in raw_managers:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            email = str(entry.get("email") or "").strip()
+            if not name and not email:
+                continue
+            if email and ("@" not in email or " " in email):
+                raise DashboardError(f"Invalid email: {email!r}")
+            cleaned.append({"name": name or email, "email": email})
+        result = _write_managers_frontmatter(brief, cleaned)
+        rebuild_dashboard()
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "command": f"update-managers {slug_val}",
+            "stdout": result,
+            "stderr": "",
+            "log": "",
+            "reload_suggested": True,
+        }
 
     # ---- Create a new confidential project ----
     if action_id == "create-project":

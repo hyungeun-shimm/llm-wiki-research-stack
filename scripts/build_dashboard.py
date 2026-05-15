@@ -20,10 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD_DIR = ROOT / "_system" / "dashboard"
 ACTIVE_BOARD = ROOT / "projects" / "_active.md"
 PREFERRED_CATEGORIES = {
-    "topic-a",
-    "topic-b",
-    "topic-c",
-    "topic-d",
+    "core-topic-a",
+    "core-topic-b",
     "methods",
     "concepts",
     "overviews",
@@ -218,6 +216,37 @@ def project_progress(
     }
 
 
+def normalize_managers(raw) -> list[dict]:
+    """Coerce frontmatter `managers` into a list of {name, email} dicts.
+
+    Accepts: list of dicts (`- name: X\n  email: Y`), list of strings
+    (`"Name <email>"` or `"Name|email"`), or a single string.
+    """
+    if not raw:
+        return []
+    items = raw if isinstance(raw, list) else [raw]
+    out: list[dict] = []
+    for item in items:
+        if isinstance(item, dict):
+            name = str(item.get("name") or "").strip()
+            email = str(item.get("email") or "").strip()
+        else:
+            text = str(item).strip()
+            if "<" in text and ">" in text:
+                name = text.split("<", 1)[0].strip()
+                email = text.split("<", 1)[1].rstrip(">").strip()
+            elif "|" in text:
+                name, _, email = text.partition("|")
+                name, email = name.strip(), email.strip()
+            elif "@" in text:
+                name, email = text, text
+            else:
+                name, email = text, ""
+        if name or email:
+            out.append({"name": name or email, "email": email})
+    return out
+
+
 def project_stats(project_path: Path, active_rows: dict[str, dict], inbox_count: int) -> dict:
     slug = project_path.name
     brief_path = project_path / "Project_Brief.md"
@@ -262,6 +291,8 @@ def project_stats(project_path: Path, active_rows: dict[str, dict], inbox_count:
             "slug": slug,
             "title": brief.get("title") or slug,
             "project_type": actual_type,
+            "managers": normalize_managers(brief.get("managers")),
+            "gdrive_path": str(brief.get("gdrive_path") or ""),
             "confidential": True,
             "status": "local-only",
             "deadline": "",
@@ -376,6 +407,8 @@ def project_stats(project_path: Path, active_rows: dict[str, dict], inbox_count:
         "slug": slug,
         "title": brief.get("title") or slug,
         "project_type": active.get("type") or brief.get("project_type") or "unknown",
+        "managers": normalize_managers(brief.get("managers")),
+        "gdrive_path": str(brief.get("gdrive_path") or ""),
         "confidential": False,
         "status": active.get("status") or "untracked",
         "deadline": active.get("deadline") or str(brief.get("deadline") or ""),
@@ -475,7 +508,7 @@ def mendeley_status() -> dict:
                 "title": "Re-run Mendeley library audit",
                 "detail": "Use after exporting a fresh BibTeX file from Mendeley to _system/mendeley/export/library.bib.",
                 "button_label": "Copy audit command",
-                "command": "python3 scripts/audit_mendeley_export.py --bib _system/mendeley/export/library.bib --pdf-root \"<MENDELEY_USERFILES_PATH>\" --out _system/mendeley/review",
+                "command": "python3 scripts/audit_mendeley_export.py --bib _system/mendeley/export/library.bib --pdf-root \"$HOME/Library/Application Support/Mendeley Reference Manager/userfiles\" --out _system/mendeley/review",
             },
             {
                 "tool": "Codex CLI / Terminal",

@@ -21,6 +21,7 @@
             <strong id="server-status">Checking...</strong>
             <button id="server-toggle" type="button" class="server-toggle-sm" disabled>...</button>
             <button id="warnings-btn" type="button" class="server-toggle-sm warnings-btn-topbar" title="View warnings &amp; operating notes">⚠️ Notes</button>
+            <button id="admin-toggle" type="button" class="server-toggle-sm admin-toggle-btn" title="Toggle admin mode to edit project managers">🔒 Admin: Off</button>
           </div>
         </div>
 
@@ -216,7 +217,7 @@
             <p style="margin:0;font-size:0.88rem;color:var(--text-muted)">Creates <code>explorations/active/{slug}/</code> and a linked confidential project. Keywords trigger a wiki relevance scan in Terminal.</p>
             <label class="launcher-field" style="display:flex;flex-direction:column;gap:4px">
               <span style="font-size:0.82rem;font-weight:600">Exploration slug</span>
-              <input id="promote-exploration-slug" type="text" class="select-input" placeholder="e.g. synaptic-plasticity-mechanisms" />
+              <input id="promote-exploration-slug" type="text" class="select-input" placeholder="e.g. cerebellum-vestibular-migraine" />
             </label>
             <label class="launcher-field" style="display:flex;flex-direction:column;gap:4px">
               <span style="font-size:0.82rem;font-weight:600">Project slug <span style="font-weight:400;color:var(--text-muted)">(auto-filled from exploration slug)</span></span>
@@ -237,7 +238,7 @@
             </label>
             <label class="launcher-field" style="display:flex;flex-direction:column;gap:4px">
               <span style="font-size:0.82rem;font-weight:600">Search keywords <span style="font-weight:400;color:var(--text-muted)">(for wiki relevance scan)</span></span>
-              <input id="promote-keywords" type="text" class="select-input" placeholder="synaptic plasticity, LTP, LTD, NMDA" />
+              <input id="promote-keywords" type="text" class="select-input" placeholder="cerebellum, vestibular migraine, CGRP" />
             </label>
             <pre id="promote-modal-output" class="run-output" data-state="" hidden></pre>
           </div>
@@ -296,33 +297,28 @@
         </section>
       </div>
 
-      <!-- ── 2-col row: Active workspaces | Snapshot (1:1) ───────────── -->
-      <div class="top-triple-row top-double-row">
-
-        <!-- Active workspaces -->
-        <section class="panel top-triple-panel workspaces-compact-panel" id="workspaces-top">
-          <div class="panel-header">
-            <div>
-              <p class="panel-kicker">Projects</p>
-              <h2>Active workspaces</h2>
-            </div>
+      <!-- ── Snapshot: full-width row (top) ───────────────────────────── -->
+      <section class="panel top-triple-panel top-stack-panel" id="snapshot">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Snapshot</p>
+            <h2>System health</h2>
           </div>
-          <div id="project-cards" class="project-grid project-grid--compact"></div>
-        </section>
+          <button type="button" class="copy-button copy-button--sm" id="wiki-coverage-btn">📊 Coverage</button>
+        </div>
+        <div id="summary-cards" class="summary-grid summary-grid--compact summary-grid--row"></div>
+      </section>
 
-        <!-- Snapshot -->
-        <section class="panel top-triple-panel" id="snapshot">
-          <div class="panel-header">
-            <div>
-              <p class="panel-kicker">Snapshot</p>
-              <h2>System health</h2>
-            </div>
-            <button type="button" class="copy-button copy-button--sm" id="wiki-coverage-btn">📊 Coverage</button>
+      <!-- ── Active workspaces: full-width row (below snapshot) ──────── -->
+      <section class="panel top-triple-panel workspaces-compact-panel top-stack-panel" id="workspaces-top">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Projects</p>
+            <h2>Active workspaces</h2>
           </div>
-          <div id="summary-cards" class="summary-grid summary-grid--compact"></div>
-        </section>
-
-      </div>
+        </div>
+        <div id="project-cards" class="project-grid project-grid--compact project-grid--row"></div>
+      </section>
 
       <main class="layout">
 
@@ -335,7 +331,7 @@
             </div>
           </div>
           <div class="wiki-search-box">
-            <input id="wiki-search-input" type="search" placeholder="Search your wiki topics, authors, methods..." autocomplete="off" />
+            <input id="wiki-search-input" type="search" placeholder="Search cerebellum, VOR, Purkinje, CGRP..." autocomplete="off" />
             <span id="wiki-search-count" class="workspace-status">Type to search</span>
           </div>
           <div id="wiki-search-results" class="wiki-search-results"></div>
@@ -353,20 +349,20 @@
             <div class="idea-capture-main">
               <label class="quick-scout-field">
                 <span>Rough idea or question</span>
-                <textarea id="idea-capture-text" rows="3" placeholder="e.g. Does synaptic plasticity interact with learning mechanisms?"></textarea>
+                <textarea id="idea-capture-text" rows="3" placeholder="e.g. Does cerebellar plasticity interact with vestibular migraine mechanisms?"></textarea>
               </label>
               <div class="idea-capture-row">
                 <label class="quick-scout-field">
                   <span>Short slug</span>
-                  <input id="idea-capture-slug" type="text" placeholder="synaptic-plasticity-mechanisms" />
+                  <input id="idea-capture-slug" type="text" placeholder="cerebellum-vestibular-migraine" />
                 </label>
                 <label class="quick-scout-field">
                   <span>Search keywords</span>
-                  <input id="idea-capture-keywords" type="text" placeholder="synaptic plasticity, LTP, LTD, NMDA" />
+                  <input id="idea-capture-keywords" type="text" placeholder="cerebellum, vestibular migraine, CGRP" />
                 </label>
                 <label class="quick-scout-field">
                   <span>Exclude terms</span>
-                  <input id="idea-capture-exclude" type="text" placeholder="case report, review, unrelated subtype" />
+                  <input id="idea-capture-exclude" type="text" placeholder="case report, unrelated migraine subtype" />
                 </label>
               </div>
             </div>

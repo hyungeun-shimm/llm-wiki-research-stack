@@ -1,8 +1,6 @@
-# AGENTS — LLM Wiki Research Management System
+# AGENTS — Research Knowledge Stack
 
-A personal knowledge base for research papers, following [Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/1dd0294ef9567971c1e4348a90d69285):
-
-> **Customize your research domain in `CLAUDE.local.md`** (gitignored). The defaults below are generic placeholders.
+A personal knowledge base for research papers, following [Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/1dd0294ef9567971c1e4348a90d69285). Set your domain (neuroscience, ML, materials, etc.) in `CLAUDE.local.md` if you want:
 
 ```
 Original PDF → sources/*.md (LLM summary) → wiki/{category}/*.md (final page)
@@ -256,24 +254,22 @@ All three tiers (PDF, source, wiki) share the same stem:
 - Year is 4 digits
 - Consortium papers: use consortium name (e.g. `1000-genomes-project-2015-...`)
 
-Example: `pollard-2006-an-rna-gene-expressed-during.pdf`
+Example: `smith-2024-attention-is-all-you-need.pdf`
 
 ## Categories
 
-Start broad. Split only when a category becomes crowded or mixes incompatible paper types.
+Start broad. Split only when a category becomes crowded or mixes incompatible paper types. Define your own — these are suggestions:
 
 | Category | Includes |
 |---|---|
-| `topic-a` | Your primary research area (define in CLAUDE.local.md) |
-| `topic-b` | A second research area |
-| `topic-c` | A third research area |
-| `topic-d` | A fourth research area |
-| `methods` | Methods, tools, and techniques papers |
-| `concepts` | Methodology and theory papers explained generically |
+| `core-topic-a` | Papers central to your first major research question |
+| `core-topic-b` | Papers central to your second major research question |
+| `methods` | Techniques and tools you use, explained generically |
+| `concepts` | Theory and methodology papers, generalizable |
 | `overviews` | Synthesis pages spanning multiple papers |
-| `other` | Cross-cutting |
+| `other` | Cross-cutting / parking lot |
 
-Tip: classify by method or mechanistic center of gravity, not by the paper's disease label alone.
+Tip: classify by method or mechanism, not by the paper's disease/application label alone. Customize the table in `CLAUDE.local.md` for your domain.
 
 ---
 ## Adding a New Paper
@@ -353,7 +349,7 @@ Add a one-line entry under the right category.
 
 - Mendeley is the reference manager for Word citation insertion.
 - The LLM-Wiki is the curated memory for papers actually read and synthesized.
-- Treat your Mendeley `userfiles` directory (set `mendeley_userfiles_path` in `CLAUDE.local.md`) as read-only Mendeley internal storage.
+- Treat `~/Library/Application Support/Mendeley Reference Manager/userfiles` as read-only Mendeley internal storage.
 - Never rename, move, or clean PDFs inside Mendeley's internal `userfiles` directory.
 - Use `_system/mendeley/export/library.bib` as a private metadata export for audits.
 - Use `_system/mendeley/review/` for generated reclassification reports.

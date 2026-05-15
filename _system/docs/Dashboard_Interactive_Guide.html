@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -524,6 +524,7 @@
       <div class="group-label">Dashboard tour</div>
       <a href="#topbar">Top bar</a>
       <a href="#quick-scout">Quick Scout</a>
+      <a href="#scopus-triage">Scopus CSV &amp; Triage</a>
       <a href="#explorations">Idea incubator</a>
       <a href="#project-launcher">Project launcher ★</a>
       <a href="#drafter-homework">Drafter homework ★</a>
@@ -535,6 +536,17 @@
       <div class="group-label">Workflow</div>
       <a href="#weekly">Weekly cycle</a>
       <a href="#agents">9 agent roles</a>
+
+      <div class="group-label">What&apos;s new in v2.3</div>
+      <a href="#v23-layout">Layout refresh</a>
+      <a href="#v23-managers">Project managers</a>
+      <a href="#v23-admin">Admin PIN mode</a>
+      <a href="#v23-chips">Count-chip popups</a>
+      <a href="#v23-data">Data updates &amp; GDrive</a>
+      <a href="#v23-reassign">Reassign &amp; renumber</a>
+      <a href="#v23-archive">Archive &amp; restore</a>
+      <a href="#v23-meetings">Meeting system</a>
+      <a href="#v23-sync">LLM sync proposals</a>
     </nav>
   </aside>
 
@@ -686,7 +698,7 @@
 
         <div class="mock-form-row">
           <label><span>Topic</span>
-            <input class="mock-input" type="text" value="Does {topic} play a role in {phenomenon}?" readonly>
+            <input class="mock-input" type="text" value="Does cerebellar plasticity play a critical role in motor learning?" readonly>
           </label>
         </div>
         <div class="mock-form-row">
@@ -714,6 +726,39 @@
 
       <h3>The scout history</h3>
       <p>Every previous scout campaign is preserved in <code>scouts/</code> with its keywords. Click any past scout to re-run it or to see overlap with your current topic.</p>
+
+      <div id="scopus-triage" style="scroll-margin-top:20px"></div>
+      <div class="feature-card card" style="margin-top:24px">
+        <h3 style="margin-top:0">📥 Scopus CSV Import</h3>
+        <p>Import papers from a Scopus search directly into a scout candidate batch — no API key required.</p>
+        <h4>How to use</h4>
+        <ol>
+          <li>In Scopus, run your search, select results, click <strong>Export → CSV</strong>.</li>
+          <li>Make sure these columns are checked: <strong>Title, Authors, Year, DOI, Abstract</strong>. Also recommended: Source title, Author Keywords, PubMed ID, Link.</li>
+          <li>In the dashboard Quick Scout section, click <strong>📥 Import Scopus CSV</strong>.</li>
+          <li>Choose your CSV file, then either add it to an existing scout or create a new one (enter topic + keywords).</li>
+          <li>Click <strong>Import</strong>. The candidates appear as a batch under <code>scouts/{slug}/candidates/{date}/</code>.</li>
+          <li>Click the <strong>?</strong> next to the button for a reminder of required CSV columns.</li>
+        </ol>
+        <p class="tip" style="font-size:0.88rem; color:var(--muted)">After importing, select the scout in the PDF/Ingest dropdown and use <strong>📋 Triage</strong> to generate criteria pre-filled with your keywords.</p>
+      </div>
+
+      <div class="feature-card card" style="margin-top:16px">
+        <h3 style="margin-top:0">📋 Triage Criteria — keyword pre-fill</h3>
+        <p>When you click <strong>📋 Triage</strong> in the PDF/Ingest panel, the criteria template is now pre-filled with the topic and keywords from the selected scout.</p>
+        <ul>
+          <li>Keywords come from the <strong>Must-include keywords</strong> section of the scout's <code>Scout_Brief.md</code>.</li>
+          <li>For scouts created via Quick Scout, the keywords you typed are saved automatically.</li>
+          <li>For Scopus CSV imports, the keywords you entered in the import dialog are used.</li>
+          <li>If you switch to a different scout in the dropdown, the criteria template refreshes to match.</li>
+          <li>You can always edit the criteria before saving.</li>
+        </ul>
+      </div>
+
+      <div class="feature-card card" style="margin-top:16px">
+        <h3 style="margin-top:0">✨ Synthesize</h3>
+        <p>After ingesting papers, click <strong>✨ Synthesize</strong> in the PDF/Ingest panel to generate a <code>wiki/overviews/</code> synthesis prompt pre-filled with keywords from the selected scout. The prompt is ready to paste into Claude Code or Codex CLI as the Synthesizer agent.</p>
+      </div>
     </section>
 
     <!-- ── Section: Explorations ── -->
@@ -727,7 +772,7 @@
         <h4>Capture new idea</h4>
         <div class="mock-form-row">
           <label><span>Idea title</span>
-            <input class="mock-input" type="text" value="Does {topic} play a role in {phenomenon}?" readonly>
+            <input class="mock-input" type="text" value="Does cerebellar plasticity play a critical role in motor learning?" readonly>
           </label>
           <label style="max-width:200px"><span>Short slug</span>
             <input class="mock-input" type="text" placeholder="(auto)" readonly>
@@ -932,16 +977,16 @@ Drafts/{section}.md      ← prior version (if any)</pre>
       <div class="info-popup amber" id="homework-example">
         <h5>Example: user-drafts/introduction.md (skeleton, ~8 lines)</h5>
 <pre style="font-size:0.82rem; margin-top:8px; background:#fff">## Central claim
-{Topic} is necessary, not just sufficient, for {phenomenon}.
+Cerebellar plasticity is necessary, not just sufficient, for motor learning.
 
 ## Framing
 Open with the long-running uncertainty: necessity vs sufficiency.
 Then narrow to recent loss-of-function evidence.
 
 ## Papers to cite (wiki page names)
-- topic-a/{paper1}.md
+- cerebellar-circuits/{paper1}.md
 - methods/{paper2}.md
-- overviews/your-overview.md  (synthesis)
+- overviews/cerebellar-learning.md  (synthesis)
 
 ## Limitation to acknowledge
 Optogenetic timing constraints — cite {paper3}.md
@@ -983,7 +1028,7 @@ The gap our work fills (no specific results yet).</pre>
         <div class="card cloud">
           <h4>The brief MAY contain</h4>
           <ul style="margin:6px 0; padding-left:20px; font-size:0.88rem;">
-            <li>Broad scientific field (e.g., "your research area AND method")</li>
+            <li>Broad scientific field (e.g., "cerebellar circuit plasticity")</li>
             <li>Standard MeSH terms used across the field</li>
             <li>Names of widely-cited public researchers</li>
             <li>Generic year range</li>
@@ -1203,6 +1248,154 @@ The gap our work fills (no specific results yet).</pre>
         Research Knowledge System · Interactive Guide · Single-file demo version<br>
         Click any sidebar link or button to explore. No data leaves this page.
       </p>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         WHAT'S NEW IN v2.3
+         ════════════════════════════════════════════════════════════════ -->
+    <section id="v23-intro" style="margin-top:48px;border-top:3px solid var(--teal);padding-top:24px;">
+      <p class="section-kicker">v2.3 · 2026-05-15</p>
+      <h2>What&apos;s new in v2.3</h2>
+      <p>This release introduces project-level governance and confidential data tracking on top of the existing wiki / project / exploration architecture: an admin mode protecting privileged edits, project managers with mailto integration, Google Drive data tracking with rollback, a meeting system, and a Phase 3 LLM sync workflow that proposes — but never auto-applies — updates to project planning artifacts.</p>
+      <p style="font-size:0.86rem;color:var(--muted)">Detailed reference for each item: <code>_system/docs/features/</code> · one markdown file per feature.</p>
+    </section>
+
+    <section id="v23-layout">
+      <p class="section-kicker">v2.3 · Dashboard layout</p>
+      <h2>Layout refresh</h2>
+      <p>The Snapshot panel now sits in a full-width row at the top, and Active workspaces fills the row below — one project card per row instead of being squeezed next to Snapshot. Inside each card the 10 count chips arrange themselves in a single horizontal flex row that scales with screen width.</p>
+      <div class="rule-block"><strong>Why:</strong> as projects multiply, the previous 2-column layout pushed each card into a narrow column and forced excessive vertical scroll.</div>
+    </section>
+
+    <section id="v23-managers">
+      <p class="section-kicker">v2.3 · People</p>
+      <h2>Project managers</h2>
+      <p>Each project can have one or more managers (name + email), stored in <code>Project_Brief.md</code> frontmatter under a <code>managers:</code> block. A badge in the bottom-right of every project card shows manager names.</p>
+      <p>Clicking the badge opens a popup with:</p>
+      <ul>
+        <li>One row per manager with a checkbox, name, and clickable email (<code>mailto:</code>).</li>
+        <li>A <strong>Select all</strong> toggle when there are 2+ managers.</li>
+        <li>An <strong>📧 Email selected managers</strong> button that opens a single <code>mailto:</code> with all checked addresses comma-joined.</li>
+      </ul>
+      <p>Editing managers is gated by admin mode — an <code>✎</code> button only appears once admin is unlocked.</p>
+      <div class="rule-block"><strong>Frontmatter format:</strong>
+<pre>managers:
+  - name: "Alice Lee"
+    email: "alice@example.com"
+  - name: "Collaborator A"
+    email: "alice@example.com"</pre>
+      </div>
+    </section>
+
+    <section id="v23-admin">
+      <p class="section-kicker">v2.3 · Governance</p>
+      <h2>Admin mode (PIN-protected) with email recovery</h2>
+      <p>The top bar has a <code>🔒 Admin: Off</code> toggle. Privileged edits (currently editing project managers, with more to come) require a 4–8 digit PIN. A recovery email is collected at setup so the PIN can be reset later.</p>
+      <ul>
+        <li><strong>First-time setup:</strong> the modal asks for a PIN (entered twice) and a recovery email. Stored at <code>_system/admin/admin_config.json</code> (gitignored, <code>chmod 600</code>).</li>
+        <li><strong>Unlock:</strong> click the toggle, enter PIN, verified server-side. Tab becomes admin-unlocked (<code>sessionStorage</code> only — closing the tab locks again).</li>
+        <li><strong>Forgot PIN:</strong> confirm the recovery email; the server generates a 6-digit code (15-min expiry), emails it via SMTP if configured, otherwise prints it to the dashboard-server terminal as a local fallback. Enter the code + new PIN to reset.</li>
+      </ul>
+      <div class="rule-block"><strong>Security:</strong> PBKDF2-HMAC-SHA256 with 200 000 iterations and per-install salt; <code>hmac.compare_digest</code> for verification; dashboard server binds to <code>127.0.0.1</code> only.</div>
+      <p style="font-size:0.86rem;color:var(--muted)">SMTP env vars for real email: <code>DASHBOARD_SMTP_HOST</code>, <code>_PORT</code>, <code>_USER</code>, <code>_PASSWORD</code>, <code>_FROM</code>. Gmail requires an App Password, not your account password.</p>
+    </section>
+
+    <section id="v23-chips">
+      <p class="section-kicker">v2.3 · Drill-down</p>
+      <h2>Count-chip file list popup</h2>
+      <p>Every count chip on a project card is now clickable. Clicking opens a popup listing the actual files in the corresponding folder. Each row opens that file in its default macOS app.</p>
+      <p>Buckets: candidates / triage-reports / approval-boards / drafts / claim-logs / candidate-batches / notes / data-updates / critiques / figure-plan / meetings.</p>
+      <p>For data-update rows, the popup adds a <strong>Reassign…</strong> button (see next section).</p>
+    </section>
+
+    <section id="v23-data">
+      <p class="section-kicker">v2.3 · Confidential data tracking</p>
+      <h2>Data updates with Google Drive integration</h2>
+      <p>The <strong>+ Data update</strong> button on each project card opens a structured form that records a new data event. The actual data file is moved into a project-specific subfolder of Google Drive named <code>LLM_project_manager/</code> — the only Drive location the LLM is allowed to touch.</p>
+      <div class="grid-3">
+        <div class="card">
+          <h4 style="margin-top:0">Canonical filename</h4>
+          <p style="font-size:0.84rem"><code>fig-1A_brief-slug.csv</code> &middot; <code>prelim_…</code> &middot; <code>unspecified_…</code></p>
+          <p style="font-size:0.78rem;color:var(--muted)">The brief description (3–6 words) is required and drives the slug.</p>
+        </div>
+        <div class="card">
+          <h4 style="margin-top:0">Two modes</h4>
+          <p style="font-size:0.84rem"><strong>New data</strong> — fresh .md + moved file.<br><strong>Adding to existing</strong> — old file → <code>archive/{name}_{timestamp}.zip</code>, new file replaces canonical name, note appended to existing .md.</p>
+        </div>
+        <div class="card">
+          <h4 style="margin-top:0">Append-only CHANGELOG</h4>
+          <p style="font-size:0.84rem"><code>LLM_project_manager/CHANGELOG.md</code> records every CREATE / UPDATE / REASSIGN / RENUMBER / RESTORE with timestamp + reason.</p>
+        </div>
+      </div>
+      <div class="rule-block"><strong>Source of truth:</strong> the <code>figure</code> field in each data-update's frontmatter is authoritative. Physical filenames mirror it but are display-only — they will be renamed on reassignment.</div>
+      <p>If <code>gdrive_path</code> is missing for a project, the modal shows an inline <strong>Set Google Drive path…</strong> button that opens a native macOS folder picker and writes the field to <code>Project_Brief.md</code>.</p>
+    </section>
+
+    <section id="v23-reassign">
+      <p class="section-kicker">v2.3 · Figure organisation</p>
+      <h2>Reassign &amp; bulk renumber figures</h2>
+      <p>As projects evolve, figures get reorganised. Two operations cover the common cases without losing history:</p>
+      <ul>
+        <li><strong>Reassign</strong> (single data-update): change figure/panel for one record. Server rewrites frontmatter + renames the canonical file (<code>unspecified_foo.csv</code> → <code>fig-2A_foo.csv</code>) + appends a CHANGELOG line.</li>
+        <li><strong>Renumber figures</strong> (bulk): map <code>Fig 2 → Fig 3</code>, <code>Fig 3 → Fig 2</code> (any number of rows). A 2-pass rename via temporary names handles swap-style cases safely. Server updates all matching data-updates, their files, and the rows in <code>figure-plan.md</code>.</li>
+      </ul>
+      <p style="font-size:0.86rem;color:var(--muted)">Both operations require a reason that is recorded in CHANGELOG, so the audit trail is preserved.</p>
+    </section>
+
+    <section id="v23-archive">
+      <p class="section-kicker">v2.3 · Rollback</p>
+      <h2>Archive viewer &amp; restore</h2>
+      <p>When a data file is replaced by a newer version, the previous file is automatically compressed into <code>LLM_project_manager/archive/</code>. The <strong>📦 Archive</strong> button on each project card lists those zips and offers a <strong>Restore</strong> action per row.</p>
+      <p>Restore extracts the zip back into <code>LLM_project_manager/</code>. If a file with the original name already exists, the restored file is suffixed with <code>_restored_{timestamp}</code> to avoid clobbering current data.</p>
+    </section>
+
+    <section id="v23-meetings">
+      <p class="section-kicker">v2.3 · Meetings</p>
+      <h2>Meeting system (ICS + macOS Calendar + append-only notes)</h2>
+      <p>Each project can schedule meetings directly from the dashboard. The <strong>+ Meeting</strong> button opens a modal that captures type, title, datetime, duration, attendees (project managers auto-checked + ad-hoc additions), location, and agenda.</p>
+      <p>On save, the system writes:</p>
+      <div class="grid-3">
+        <div class="card">
+          <h4 style="margin-top:0">📝 Meeting record</h4>
+          <p style="font-size:0.82rem"><code>projects/{slug}/meetings/{date-type-slug}.md</code> with frontmatter + agenda + notes history.</p>
+        </div>
+        <div class="card">
+          <h4 style="margin-top:0">📅 ICS invite</h4>
+          <p style="font-size:0.82rem">Standard RFC-5545 <code>.ics</code> file next to the .md. Floating local time. Recipients with emails are listed as <code>ATTENDEE</code> entries.</p>
+        </div>
+        <div class="card">
+          <h4 style="margin-top:0">🗓 macOS Calendar</h4>
+          <p style="font-size:0.82rem">Event added to the default writable calendar via AppleScript. Optional toggle in the modal.</p>
+        </div>
+      </div>
+      <p>Meeting types — default <code>table / progress / collaborator</code> — are extensible via the modal&apos;s <strong>+ New type</strong> action, persisted in <code>_system/admin/meeting_types.json</code>.</p>
+      <p>The <strong>Meetings</strong> button on each card lists all meetings; each row has <strong>+ Note</strong> (append-only markdown section) and <strong>.ics</strong> (re-open invite) buttons.</p>
+    </section>
+
+    <section id="v23-sync">
+      <p class="section-kicker">v2.3 · Phase 3</p>
+      <h2>LLM sync proposals (approval workflow)</h2>
+      <p>Two new local-LLM roles read recent data-updates / meeting notes and propose mechanical changes to project planning artifacts. The LLM <strong>never edits files directly</strong> — it writes a proposal that the user reviews item by item.</p>
+      <div class="grid-3">
+        <div class="card local">
+          <span class="pill pill-local">local-only</span>
+          <h4 style="margin-top:10px">🤖 data-sync</h4>
+          <p style="font-size:0.82rem">Reads recent <code>data-updates/*.md</code> + planning artifacts. Proposes status updates and Decision_Log entries.</p>
+          <p style="font-size:0.78rem;color:var(--muted)">Prompt: <code>subagents/12-data-sync.md</code></p>
+        </div>
+        <div class="card local">
+          <span class="pill pill-local">local-only</span>
+          <h4 style="margin-top:10px">🤖 meeting-sync</h4>
+          <p style="font-size:0.82rem">Reads recent <code>meetings/*.md</code> + planning artifacts. Proposes decisions logged + figure/experiment shifts.</p>
+          <p style="font-size:0.78rem;color:var(--muted)">Prompt: <code>subagents/13-meeting-sync.md</code></p>
+        </div>
+        <div class="card">
+          <h4 style="margin-top:0">Apply with checkboxes</h4>
+          <p style="font-size:0.82rem">The <strong>Proposals</strong> button lists generated proposals; each action has a checkbox + summary. Server applies selected items mechanically (regex / YAML edits) and appends an <code>## Applied</code> audit section.</p>
+        </div>
+      </div>
+      <div class="rule-block"><strong>Action vocabulary:</strong> <code>figure_plan_status_update</code> · <code>experiment_roadmap_status_update</code> · <code>figure_plan_add_row</code> · <code>experiment_roadmap_add_row</code> · <code>decision_log_append</code> · <code>note</code>. Every action carries <code>source_files</code> for traceability.</div>
+      <p style="font-size:0.86rem;color:var(--muted)">Apply uses mechanical text edits, not the LLM — so an Apply can never itself hallucinate. The LLM only proposes; the user approves; the server executes.</p>
     </section>
 
   </main>

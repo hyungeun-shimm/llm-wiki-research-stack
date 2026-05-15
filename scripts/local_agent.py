@@ -77,6 +77,8 @@ ROLE_TO_SUBAGENT: dict[str, str] = {
     "demon": "08-demon.md",
     "rejection-sim": "09-rejection-sim.md",
     "scout-brief": "11-scout-brief.md",
+    "data-sync": "12-data-sync.md",
+    "meeting-sync": "13-meeting-sync.md",
 }
 
 LM_STUDIO_BASE = "http://localhost:1234/v1"
@@ -252,6 +254,30 @@ def load_context(
             loaded_sb.append(cf)
             used_sb += cf.chars
         return loaded_sb
+
+    # ---- sync roles: data-sync / meeting-sync ----
+    if role in {"data-sync", "meeting-sync"}:
+        candidates.append(("Project_Brief.md", project / "Project_Brief.md"))
+        candidates.append(("Decision_Log.md", project / "Decision_Log.md"))
+        candidates.append(("figure-plan.md", project / "figure-plan.md"))
+        candidates.append(("experiment-roadmap.md", project / "experiment-roadmap.md"))
+        if role == "data-sync":
+            for p in _latest_files(project / "data-updates", "*.md", n=8):
+                candidates.append((f"data-updates/{p.name}", p))
+        else:
+            for p in _latest_files(project / "meetings", "*.md", n=6):
+                candidates.append((f"meetings/{p.name}", p))
+        loaded_s: list[ContextFile] = []
+        used_s = 0
+        for lbl, pth in candidates:
+            cf = _load_file(lbl, pth)
+            if cf is None:
+                continue
+            if used_s + cf.chars > context_budget:
+                break
+            loaded_s.append(cf)
+            used_s += cf.chars
+        return loaded_s
 
     # ---- shared core files (all other roles) ----
     candidates.append(("Project_Brief.md", project / "Project_Brief.md"))
@@ -436,6 +462,11 @@ def output_path(project: Path, role: str, section: str = "") -> Path:
     elif role == "scout-brief":
         # Always overwrites the single canonical draft so exports are deterministic
         dest = project / "notes" / "scout-brief.md"
+
+    elif role in {"data-sync", "meeting-sync"}:
+        prefix = role  # "data-sync" or "meeting-sync"
+        n = _next_version(project / "sync-proposals", prefix, ".md")
+        dest = project / "sync-proposals" / f"{prefix}-v{n}-{today}.md"
 
     else:
         dest = project / f"{role}-output-{today}.md"

@@ -65,3 +65,21 @@ _system/mendeley/watch/*
 # Working scratch
 working/
 homework/
+
+# Dashboard runtime cache (excluded from public template)
+_system/dashboard/dashboard.json
+_system/dashboard/data.js
+_system/dashboard/run-logs/
+_system/dashboard/auto-download-queue.json
+
+# Admin / PIN config
+_system/admin/admin_config.json
+_system/admin/meeting_types.json
+
+# State files
+_system/docs/homework.json
+_system/docs/backup_state.json
+_system/docs/artifact-build-manifest.json
+
+# One-shot tooling
+scripts/_append_v23_slides.py

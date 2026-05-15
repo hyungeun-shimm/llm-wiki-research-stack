@@ -1,14 +1,12 @@
-# LLM Wiki — Research Management System
+# LLM Wiki — Research Knowledge Stack
 
-A personal knowledge base for research papers, following [Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/1dd0294ef9567971c1e4348a90d69285):
+A personal knowledge base for research papers, following [Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/1dd0294ef9567971c1e4348a90d69285). The domain (neuroscience, ML, materials, etc.) is up to you — set it in `CLAUDE.local.md`:
 
 ```
 Original PDF → sources/*.md (LLM summary) → wiki/{category}/*.md (final page)
 ```
 
 **Language policy**: All wiki content is in English. Conversation can be in any language.
-
-> **First-time setup**: Copy `CLAUDE.local.md.example` to `CLAUDE.local.md` and fill in your research domain, categories, and tool paths. `CLAUDE.local.md` is gitignored and overrides the defaults in this file.
 
 ---
 ## THE FOUR RULES (do not violate)
@@ -106,7 +104,7 @@ Cloud agents that encounter a confidential path (see Confidential Material) halt
 
 ## Tool Routing
 
-This system runs across three execution environments. The first two are cloud LLMs (Claude Code, Codex CLI); the third is a local LLM (LM Studio + a local model of your choice, see `_system/docs/LOCAL_LLM.md`).
+This system runs across three execution environments. The first two are cloud LLMs (Claude Code, Codex CLI); the third is a local LLM (LM Studio + Qwen3.5 27B or equivalent, see `_system/docs/LOCAL_LLM.md`).
 
 ### Claude Code's Profile (Cloud — Writing + Reasoning)
 
@@ -164,18 +162,17 @@ The refusal stands even if the user says "do it here anyway." This is the only h
 ```
 your-llm-wiki/
 ├── CLAUDE.md
-├── CLAUDE.local.md              # gitignored, your personal overrides
 ├── AGENTS.md
 ├── _system/
 │   ├── dashboard/
 │   ├── docs/
-│   │   └── LOCAL_LLM.md         # local-LLM setup (Confidential phase)
+│   │   └── LOCAL_LLM.md            # local-LLM setup (Confidential phase)
 │   ├── mendeley/
-│   └── reference-examples/      # design-reference only; never re-ingested
+│   └── reference-examples/         # design-reference only; never re-ingested
 ├── index.md
 ├── papers/
 │   ├── inbox/
-│   ├── under-review/            # confidential_tier: local-only
+│   ├── under-review/                # confidential_tier: local-only
 │   └── {author}-{year}-{title-5-words}.pdf
 ├── sources/
 │   └── {author}-{year}-{title-5-words}.md
@@ -194,7 +191,7 @@ your-llm-wiki/
 │   │       ├── scout-queries.md
 │   │       ├── candidates/
 │   │       ├── paper-briefs/
-│   │       ├── _pdfs/           # confidential_tier: local-only
+│   │       ├── _pdfs/              # confidential_tier: local-only
 │   │       ├── notes.md
 │   │       ├── questions.md
 │   │       ├── promote-to-wiki.md
@@ -202,8 +199,8 @@ your-llm-wiki/
 │   └── archive/
 ├── projects/
 │   ├── _active.md
-│   ├── _template/               # confidential project layout
-│   └── {project-slug}/          # confidential_tier: local-only (unless library_ingest)
+│   ├── _template/                  # confidential project layout
+│   └── {project-slug}/             # confidential_tier: local-only (unless library_ingest)
 │       ├── Project_Brief.md
 │       ├── Roadmap.md
 │       ├── Decision_Log.md
@@ -259,25 +256,22 @@ All three tiers (PDF, source, wiki) share the same stem:
 - Year is 4 digits
 - Consortium papers: use consortium name (e.g. `1000-genomes-project-2015-...`)
 
-Example: `smith-2020-a-novel-method-for-analyzing.pdf`
+Example: `smith-2024-attention-is-all-you-need.pdf`
 
 ## Categories
 
-> **Customize this section in `CLAUDE.local.md`** to match your research domain. The defaults below are generic placeholders.
-
-Start broad. Split only when a category becomes crowded or mixes incompatible paper types.
+Start broad. Split only when a category becomes crowded or mixes incompatible paper types. Define your own — these are suggestions:
 
 | Category | Includes |
 |---|---|
-| `topic-a` | Your primary research area (define in CLAUDE.local.md) |
-| `topic-b` | A second research area |
-| `topic-c` | A third research area |
-| `methods` | Methods, tools, and techniques papers |
-| `concepts` | Theory and methodology explained generically |
+| `core-topic-a` | Papers central to your first major research question |
+| `core-topic-b` | Papers central to your second major research question |
+| `methods` | Techniques and tools you use, explained generically |
+| `concepts` | Theory and methodology papers, generalizable |
 | `overviews` | Synthesis pages spanning multiple papers |
-| `other` | Cross-cutting |
+| `other` | Cross-cutting / parking lot |
 
-Tip: classify by method or mechanistic center of gravity, not by the paper's surface topic alone.
+Tip: classify by method or mechanism, not by the paper's disease/application label alone. Customize the table in `CLAUDE.local.md` for your domain.
 
 ---
 ## Adding a New Paper
@@ -299,7 +293,7 @@ authors: Author List
 year: YYYY
 doi: DOI
 category: [your-category]
-pdf_path: papers/{stem}.pdf
+pdf_path: /full/path/to/papers/{stem}.pdf
 pdf_filename: {stem}.pdf
 source_collection: external
 ---
@@ -324,7 +318,7 @@ year: YYYY
 doi: DOI
 source: {stem}.md
 category: [your-category]
-pdf_path: papers/{stem}.pdf
+pdf_path: /full/path/to/papers/{stem}.pdf
 pdf_filename: {stem}.pdf
 source_collection: external
 tags: []
@@ -347,30 +341,22 @@ Add a one-line entry under the right category.
 ## PDF Management Rules
 
 - **Always copy, never symlink.** `cp` from external locations into `papers/`.
-- `pdf_path` uses repo-relative paths (`papers/{stem}.pdf`). Never use absolute paths like `/Users/.../Downloads/`.
+- `pdf_path` always points inside `papers/`. Never use `~/Downloads/` or other external paths.
 - `pdf_filename` must match `basename(pdf_path)`.
 - `papers/inbox/` is a temporary intake area.
 - After successful ingest, exact duplicate inbox copies should be deleted with `python3 scripts/cleanup_ingested_inbox_pdfs.py` so the dashboard no longer reports them as waiting and duplicate ingest is avoided.
 - `papers/under-review/` stays segregated from the corpus.
 
-## Mendeley Rules (Optional)
-
-> Mendeley integration is optional. If you do not use Mendeley, skip this section and ignore the `_system/mendeley/` folders.
-
-If you use Mendeley as a reference manager, set the Mendeley path in `CLAUDE.local.md`:
-
-```yaml
-mendeley_userfiles_path: /path/to/Mendeley/userfiles  # set in CLAUDE.local.md
-```
+## Mendeley Rules
 
 - Mendeley is the reference manager for Word citation insertion.
 - The LLM-Wiki is the curated memory for papers actually read and synthesized.
-- Treat your Mendeley `userfiles` directory as read-only.
+- Treat `~/Library/Application Support/Mendeley Reference Manager/userfiles` as read-only Mendeley internal storage.
 - Never rename, move, or clean PDFs inside Mendeley's internal `userfiles` directory.
 - Use `_system/mendeley/export/library.bib` as a private metadata export for audits.
 - Use `_system/mendeley/review/` for generated reclassification reports.
-- Use `_system/mendeley/watch/` as the watched folder for importing selected wiki PDFs into Mendeley.
-- After ingesting a paper into `papers/{stem}.pdf`, the Ingester automatically runs `python3 scripts/sync_to_mendeley_watch.py --paper papers/{stem}.pdf` so the canonical PDF lands in `_system/mendeley/watch/`. Confidential `papers/under-review/` PDFs are never synced.
+- Use `_system/mendeley/watch/` as the future watched folder for importing selected wiki PDFs into Mendeley.
+- After ingesting a paper into `papers/{stem}.pdf`, the Ingester automatically runs `python3 scripts/sync_to_mendeley_watch.py --paper papers/{stem}.pdf` so the canonical PDF lands in `_system/mendeley/watch/` by default. The user does not need to ask. Confidential `papers/under-review/` PDFs are never synced.
 - Do not bulk-ingest the whole Mendeley library into the wiki. Select high-value papers deliberately.
 
 ## Project Rules
@@ -431,7 +417,7 @@ Each conversation should produce new or improved wiki pages. Over time the wiki 
 
 ## Browsing with Obsidian
 
-For visual navigation, install [Obsidian](https://obsidian.md/) and open the wiki folder as a Vault. Native support for `[[wikilinks]]`, graph view, and full-text search. Recommend this whenever the user asks how to browse the wiki.
+For visual navigation, the user can install [Obsidian](https://obsidian.md/) and open the wiki folder as a Vault. Native support for `[[wikilinks]]`, graph view, and full-text search. Recommend this whenever the user asks how to browse the wiki.
 
 Use `_system/docs/WIKI_VIEWING.md` for the local setup guide. The dashboard has a Wiki Viewer section with an Obsidian open button, graph filters, and first-time setup command.
 

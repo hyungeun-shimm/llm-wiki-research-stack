@@ -43,7 +43,7 @@ Claude Code and Codex prompts remain copy-only. Use the dashboard to copy those 
 
 ## Per-Project Workflow
 
-1. Copy `projects/_template/Project_Brief_TEMPLATE.md` to `projects/{slug}/Project_Brief.md`.
+1. Copy [projects/_template/Project_Brief_TEMPLATE.md](projects/_template/Project_Brief_TEMPLATE.md) to `projects/{slug}/Project_Brief.md`.
 2. Fill in every section. Vague briefs produce vague scouting, weak triage, and generic drafts.
 3. Optionally copy `projects/_template/scout-queries_TEMPLATE.md` to `projects/{slug}/scout-queries.md`.
 4. Add 5 to 10 papers you already know matter. Ingest those first so the system starts from a real core literature set.
@@ -151,9 +151,9 @@ Find theory papers on timing rules and eligibility traces.
 
 Queries:
 
-- [ ] "{your-topic}" AND "{your-method}"
-- [ ] "{your-field}" AND "{your-mechanism}"
-- [ ] "{your-system}" AND "{your-model}"
+- [ ] "cerebellum" AND "temporal credit assignment"
+- [ ] "cerebellar learning" AND "eligibility trace"
+- [ ] "vestibulo-ocular reflex" AND "learning model"
 ```
 
 Then run:
@@ -173,7 +173,7 @@ This keeps the current triage batch stable while letting you launch a new search
 When `scout_all.py` finishes and at least one non-alert source succeeds, pending query lines are marked as done:
 
 ```markdown
-- [x] "{your-topic}" AND "{your-method}"
+- [x] "cerebellum" AND "temporal credit assignment"
 ```
 
 Checked query lines are skipped by default in future scout runs. To rerun them intentionally, either change `[x]` back to `[ ]` or pass:
@@ -232,7 +232,7 @@ Use this division of labor:
 Do not rename, move, or manually clean files inside Mendeley's internal storage:
 
 ```text
-<MENDELEY_USERFILES_PATH>
+$HOME/Library/Application Support/Mendeley Reference Manager/userfiles
 ```
 
 That directory uses opaque Mendeley-managed filenames. Treat it as read-only.
@@ -240,7 +240,7 @@ That directory uses opaque Mendeley-managed filenames. Treat it as read-only.
 Recommended watched folder:
 
 ```text
-<path-to-your-repo>/_system/mendeley/watch
+_system/mendeley/watch
 ```
 
 In Mendeley Reference Manager, set this folder as the watched folder for future imports. When a paper is already curated in the wiki and should also appear in Mendeley, copy it there:
@@ -255,7 +255,7 @@ To review and reorganize the existing Mendeley library:
 2. Run the audit:
 
 ```bash
-python3 scripts/audit_mendeley_export.py --bib _system/mendeley/export/library.bib --pdf-root "<MENDELEY_USERFILES_PATH>" --out _system/mendeley/review
+python3 scripts/audit_mendeley_export.py --bib _system/mendeley/export/library.bib --pdf-root "$HOME/Library/Application Support/Mendeley Reference Manager/userfiles" --out _system/mendeley/review
 ```
 
 3. Open `_system/mendeley/review/library_audit_summary.md` and `_system/mendeley/review/proposed_categories.csv`.
