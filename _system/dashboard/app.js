@@ -3481,18 +3481,29 @@ ${yearLine}`.trim();
 
         scard.append(sTitle, sMeta, sBadges);
 
-        if (serverState.online) {
-          const openSBtn = el("button", "copy-button hw-session-open", "Open folder");
-          openSBtn.addEventListener("click", async () => {
-            await fetch(apiUrl("/api/run"), { method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ action_id: "homework-open-session", params: { session_dir: sess.dir } }) });
-          });
-          scard.append(openSBtn);
-        } else {
-          const pathBtn = el("button", "copy-button hw-session-open", "Copy path");
-          pathBtn.addEventListener("click", () => { navigator.clipboard.writeText(sess.dir); pathBtn.textContent = "Copied!"; setTimeout(() => { pathBtn.textContent = "Copy path"; }, 1500); });
-          scard.append(pathBtn);
-        }
+        const openSBtn = el("button", "copy-button hw-session-open", "📂 Open folder");
+        openSBtn.title = "Open this session folder in Finder";
+        openSBtn.addEventListener("click", async () => {
+          openSBtn.disabled = true;
+          openSBtn.textContent = "Opening...";
+          try {
+            const resp = await fetch(apiUrl("/api/run"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action_id: "homework-open-session", params: { session_dir: sess.dir } }),
+            });
+            if (!resp.ok) throw new Error("server not running");
+            openSBtn.textContent = "✓ Opened";
+            setTimeout(() => { openSBtn.textContent = "📂 Open folder"; openSBtn.disabled = false; }, 1200);
+          } catch (e) {
+            // Fallback: copy path to clipboard and explain
+            try { await navigator.clipboard.writeText(sess.dir); } catch {}
+            openSBtn.textContent = "Path copied — start server to open";
+            openSBtn.title = "Path copied to clipboard. Start the dashboard server (python3 scripts/dashboard_server.py --port 8765) to open folders with one click.";
+            setTimeout(() => { openSBtn.textContent = "📂 Open folder"; openSBtn.disabled = false; }, 3000);
+          }
+        });
+        scard.append(openSBtn);
         sessGrid.append(scard);
       });
       sessSection.append(sessGrid);
