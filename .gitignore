@@ -1,0 +1,67 @@
+# OS / editor
+.DS_Store
+.obsidian/
+__pycache__/
+*.pyc
+*.pyo
+*.eml
+.env
+.research-system.env
+
+# Personal overrides (NEVER push)
+CLAUDE.local.md
+
+# Library content (each user builds their own)
+papers/*.pdf
+papers/**/*.pdf
+papers/under-review/
+sources/*.md
+!sources/.gitkeep
+!sources/README.md
+
+# Wiki content (each user builds their own)
+wiki/*/*.md
+!wiki/*/.gitkeep
+!wiki/*/README.md
+!wiki/overviews/.gitkeep
+index.md
+
+# Explorations (personal working space)
+explorations/idea-notes/*.md
+!explorations/idea-notes/.gitkeep
+explorations/ideas/*.md
+!explorations/ideas/.gitkeep
+explorations/active/*/
+!explorations/active/.gitkeep
+explorations/archive/*/
+!explorations/archive/.gitkeep
+
+# Projects (confidential by default; only _template ships)
+projects/*/
+!projects/_template/
+!projects/_active.md
+
+# Scouts (ad-hoc, personal)
+scouts/*/
+!scouts/.gitkeep
+
+# Build-phase staging
+projects/*/candidates/
+projects/*/drafts/
+explorations/active/*/candidates/
+explorations/active/*/_pdfs/
+
+# Mendeley (personal)
+_system/mendeley/export/*
+!_system/mendeley/export/.gitkeep
+!_system/mendeley/export/README.md
+_system/mendeley/review/*
+!_system/mendeley/review/.gitkeep
+!_system/mendeley/review/README.md
+_system/mendeley/watch/*
+!_system/mendeley/watch/.gitkeep
+!_system/mendeley/watch/README.md
+
+# Working scratch
+working/
+homework/

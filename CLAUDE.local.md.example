@@ -1,0 +1,47 @@
+# CLAUDE.local.md (personal overrides — gitignored)
+
+> Copy this file to `CLAUDE.local.md` and fill in your personal settings. This file is gitignored and overrides defaults in `CLAUDE.md`. Claude Code reads both files automatically; values here take precedence.
+
+## Research Domain
+
+Describe your research focus in one sentence. This replaces the generic header in `CLAUDE.md`.
+
+Example:
+> A personal knowledge base of {your-field} papers focused on {topic-1}, {topic-2}, and {topic-3}.
+
+## Categories
+
+Replace the placeholder categories in `CLAUDE.md` with your actual research areas.
+
+| Category | Includes |
+|---|---|
+| `your-topic-1` | (specific scope) |
+| `your-topic-2` | (specific scope) |
+| `your-topic-3` | (specific scope) |
+| `methods` | Methods and tools papers |
+| `concepts` | Theory and methodology |
+| `overviews` | Synthesis pages |
+| `other` | Cross-cutting |
+
+Create matching subfolders under `wiki/{category}/`.
+
+## Tool Paths (Optional)
+
+If you use Mendeley:
+
+```yaml
+mendeley_userfiles_path: /path/to/your/Mendeley/userfiles
+```
+
+If you use a local LLM, point to its endpoint:
+
+```yaml
+local_llm_endpoint: http://localhost:1234/v1
+local_llm_model: your-model-name
+```
+
+## Personal Identifiers
+
+- email: your@email.com
+- preferred citation style: (e.g., APA, Nature, Cell)
+- timezone: (e.g., America/Los_Angeles)

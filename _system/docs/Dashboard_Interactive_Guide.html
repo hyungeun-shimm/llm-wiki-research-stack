@@ -1,0 +1,1394 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Research Knowledge System — Interactive Guide</title>
+<style>
+  :root {
+    --teal: #0f766e;
+    --teal-soft: #dff5f1;
+    --teal-dark: #115e59;
+    --navy: #1E2A4A;
+    --amber: #b45309;
+    --amber-soft: #fef3c7;
+    --amber-dark: #92400e;
+    --blue: #1d4ed8;
+    --blue-soft: #dbeafe;
+    --gray-50: #f9fafb;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-500: #6b7280;
+    --gray-700: #374151;
+    --gray-900: #111827;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --bg: #ffffff;
+    --surface: #fafafa;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.6;
+  }
+  /* ── Layout ───────────────────────────────────── */
+  .layout {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    min-height: 100vh;
+  }
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    background: var(--navy);
+    color: #e2e8f0;
+    padding: 24px 16px;
+    overflow-y: auto;
+  }
+  .sidebar h1 {
+    font-size: 1rem;
+    margin: 0 0 4px 0;
+    color: #fff;
+  }
+  .sidebar .tagline {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    margin-bottom: 24px;
+  }
+  .sidebar nav a {
+    display: block;
+    color: #cbd5e1;
+    text-decoration: none;
+    padding: 7px 10px;
+    border-radius: 6px;
+    font-size: 0.86rem;
+    margin-bottom: 2px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .sidebar nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  .sidebar nav a.active { background: var(--teal); color: #fff; font-weight: 600; }
+  .sidebar nav .group-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    padding: 14px 10px 6px;
+    font-weight: 700;
+  }
+  main {
+    padding: 40px 56px 80px;
+    max-width: 1100px;
+  }
+  section {
+    margin-bottom: 80px;
+    scroll-margin-top: 20px;
+  }
+  h2 {
+    font-size: 1.8rem;
+    color: var(--navy);
+    margin: 0 0 8px;
+    border-bottom: 3px solid var(--teal);
+    padding-bottom: 12px;
+    display: inline-block;
+  }
+  .section-kicker {
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--teal);
+    margin-bottom: 6px;
+  }
+  h3 {
+    color: var(--navy);
+    margin-top: 32px;
+    font-size: 1.18rem;
+  }
+  p { margin: 8px 0 12px; }
+  code, pre {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    background: var(--gray-100);
+    border-radius: 4px;
+    font-size: 0.86em;
+  }
+  code { padding: 2px 6px; }
+  pre {
+    padding: 14px 18px;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    line-height: 1.5;
+  }
+  /* ── Pills (badges) ───────────────────────────── */
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    vertical-align: middle;
+  }
+  .pill-cloud { background: var(--teal-soft); color: var(--teal-dark); border: 1px solid var(--teal); }
+  .pill-local { background: var(--amber-soft); color: var(--amber-dark); border: 1px solid var(--amber); }
+  .pill-blue  { background: var(--blue-soft);  color: var(--blue); border: 1px solid var(--blue); }
+  .pill-gray  { background: var(--gray-100);  color: var(--gray-700); border: 1px solid var(--gray-300); }
+
+  /* ── Hero ─────────────────────────────────────── */
+  .hero {
+    background: linear-gradient(135deg, var(--navy) 0%, #2d3a5f 100%);
+    color: #fff;
+    padding: 56px 56px 48px;
+    margin: -40px -56px 60px;
+    border-bottom: 4px solid var(--teal);
+  }
+  .hero h1 {
+    font-size: 2.4rem;
+    margin: 0 0 8px;
+    color: #fff;
+  }
+  .hero .subtitle {
+    color: #cbd5e1;
+    font-size: 1.1rem;
+    margin-bottom: 24px;
+  }
+  .hero .demo-note {
+    background: rgba(255,255,255,0.08);
+    border-left: 3px solid var(--teal);
+    padding: 12px 16px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    margin-top: 20px;
+  }
+  /* ── Cards / Grid ─────────────────────────────── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 16px 0; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px 22px;
+  }
+  .card h4 { margin: 0 0 8px; color: var(--navy); font-size: 1rem; }
+  .card.cloud { background: #f0fdfa; border-color: var(--teal); }
+  .card.local { background: #fffbeb; border-color: var(--amber); }
+  .card.blue  { background: #eff6ff; border-color: var(--blue); }
+
+  /* ── Mock dashboard panels ────────────────────── */
+  .mock-panel {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin: 16px 0;
+    box-shadow: var(--shadow-sm);
+  }
+  .mock-panel .panel-kicker {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.7rem;
+    color: var(--teal);
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .mock-panel h4 {
+    margin: 0 0 10px;
+    color: var(--navy);
+    font-size: 1.05rem;
+  }
+  .mock-form-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    margin: 10px 0;
+  }
+  .mock-form-row label {
+    flex: 1;
+    min-width: 180px;
+    font-size: 0.85rem;
+  }
+  .mock-form-row label span { display: block; font-weight: 500; margin-bottom: 4px; color: var(--gray-700); }
+  .mock-input, .mock-select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--gray-300);
+    border-radius: 6px;
+    font-size: 0.88rem;
+    background: #fff;
+    font-family: inherit;
+  }
+  .mock-select { cursor: pointer; }
+  .btn {
+    padding: 9px 18px;
+    border-radius: 6px;
+    border: 1px solid var(--gray-300);
+    background: #fff;
+    cursor: pointer;
+    font-size: 0.88rem;
+    font-weight: 600;
+    font-family: inherit;
+    transition: all 0.12s;
+  }
+  .btn:hover { background: var(--gray-50); }
+  .btn-primary {
+    background: var(--blue);
+    border-color: var(--blue);
+    color: #fff;
+  }
+  .btn-primary:hover { background: #1e40af; }
+  .btn-teal {
+    background: var(--teal);
+    border-color: var(--teal);
+    color: #fff;
+  }
+  .btn-amber {
+    background: var(--amber);
+    border-color: var(--amber);
+    color: #fff;
+  }
+  /* ── Interactive panels ───────────────────────── */
+  .info-popup {
+    display: none;
+    margin-top: 12px;
+    background: var(--teal-soft);
+    border-left: 4px solid var(--teal);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    font-size: 0.9rem;
+    animation: slideIn 0.2s ease-out;
+  }
+  .info-popup.show { display: block; }
+  .info-popup.amber { background: var(--amber-soft); border-left-color: var(--amber); }
+  .info-popup h5 { margin: 0 0 6px; color: var(--navy); font-size: 0.95rem; }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  /* ── Action dropdown demo ─────────────────────── */
+  .action-demo {
+    background: var(--gray-50);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+    margin: 16px 0;
+  }
+  .action-demo-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .action-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .action-group {
+    margin-top: 10px;
+  }
+  .action-group-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-weight: 700;
+    padding: 6px 8px 2px;
+  }
+  .action-item {
+    padding: 8px 12px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.86rem;
+    transition: all 0.12s;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .action-item:hover {
+    border-color: var(--teal);
+    background: var(--teal-soft);
+  }
+  .action-item.selected {
+    border-color: var(--teal);
+    background: var(--teal-soft);
+    font-weight: 600;
+  }
+  .action-item.local-action { border-left: 3px solid var(--amber); }
+  .action-item.cloud-action { border-left: 3px solid var(--teal); }
+  .action-item-tool {
+    font-size: 0.7rem;
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .action-detail {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px;
+    min-height: 200px;
+  }
+  .action-detail h5 {
+    margin: 0 0 6px;
+    color: var(--navy);
+  }
+  .action-detail .placeholder {
+    color: var(--muted);
+    text-align: center;
+    padding: 50px 20px;
+    font-style: italic;
+  }
+  .action-detail .cmd {
+    background: var(--gray-100);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 0.78rem;
+    margin: 10px 0;
+    word-break: break-all;
+  }
+  /* ── Section sub-select demo ──────────────────── */
+  .section-demo {
+    background: var(--gray-50);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 14px;
+    margin-top: 12px;
+  }
+  .section-pills {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin: 8px 0;
+  }
+  .section-pill {
+    padding: 5px 14px;
+    background: #fff;
+    border: 1px solid var(--gray-300);
+    border-radius: 999px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .section-pill:hover { border-color: var(--amber); }
+  .section-pill.active {
+    background: var(--amber);
+    color: #fff;
+    border-color: var(--amber);
+    font-weight: 600;
+  }
+  .section-output {
+    margin-top: 10px;
+    padding: 10px 14px;
+    background: #fff;
+    border-left: 3px solid var(--amber);
+    border-radius: 0 6px 6px 0;
+    font-size: 0.85rem;
+  }
+  /* ── Flow diagram ─────────────────────────────── */
+  .flow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 18px 0;
+  }
+  .flow-step {
+    flex: 1;
+    min-width: 140px;
+    padding: 12px 14px;
+    background: var(--gray-100);
+    border-radius: 8px;
+    text-align: center;
+    font-size: 0.86rem;
+    border: 1px solid var(--line);
+  }
+  .flow-step.cloud { background: var(--teal-soft); border-color: var(--teal); }
+  .flow-step.local { background: var(--amber-soft); border-color: var(--amber); }
+  .flow-arrow { font-size: 1.5rem; color: var(--muted); }
+  /* ── Tables ───────────────────────────────────── */
+  table.simple {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.88rem;
+  }
+  table.simple th, table.simple td {
+    padding: 9px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--line);
+  }
+  table.simple th {
+    background: var(--gray-50);
+    font-weight: 600;
+    color: var(--navy);
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  table.simple tr.cloud td { background: rgba(15,118,110,0.04); }
+  table.simple tr.local td { background: rgba(180,83,9,0.04); }
+  table.simple tr.divider td {
+    background: var(--navy);
+    color: #fff;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  /* ── Rule blocks ──────────────────────────────── */
+  .rule-block {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 12px 0;
+    border-left: 4px solid var(--teal);
+  }
+  .rule-block.warn { border-left-color: var(--amber); background: #fffbeb; }
+  .rule-block.danger { border-left-color: #dc2626; background: #fef2f2; }
+  .rule-num {
+    display: inline-block;
+    width: 28px;
+    height: 28px;
+    background: var(--teal);
+    color: #fff;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 28px;
+    font-weight: 700;
+    margin-right: 10px;
+    font-size: 0.9rem;
+  }
+  /* ── Workflow header ──────────────────────────── */
+  .workflow-bar {
+    display: flex;
+    background: var(--gray-50);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    margin: 16px 0;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.84rem;
+  }
+  .wf-phase {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 6px;
+  }
+  .wf-phase.build { background: var(--teal-soft); }
+  .wf-phase.use { background: var(--blue-soft); }
+  .wf-phase.conf { background: var(--amber-soft); }
+  .wf-phase strong { color: var(--navy); }
+  /* ── Mobile ───────────────────────────────────── */
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { position: relative; height: auto; }
+    .hero { padding: 36px 24px; margin: -40px -24px 36px; }
+    main { padding: 24px; }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .action-demo-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- ═══════════════ Sidebar ═══════════════ -->
+  <aside class="sidebar">
+    <h1>Research Knowledge System</h1>
+    <p class="tagline">Interactive Guide · Demo</p>
+    <nav>
+      <div class="group-label">Philosophy</div>
+      <a href="#overview" class="nav-link">Why this system</a>
+      <a href="#rules">Four Rules</a>
+      <a href="#architecture">Three spaces</a>
+      <a href="#confidentiality">Cloud vs Local AI</a>
+
+      <div class="group-label">Dashboard tour</div>
+      <a href="#topbar">Top bar</a>
+      <a href="#quick-scout">Quick Scout</a>
+      <a href="#explorations">Idea incubator</a>
+      <a href="#project-launcher">Project launcher ★</a>
+      <a href="#drafter-homework">Drafter homework ★</a>
+      <a href="#scout-brief">Scout brief system</a>
+      <a href="#wiki">Wiki viewer</a>
+      <a href="#mendeley">Mendeley sync</a>
+      <a href="#backup">Backup</a>
+
+      <div class="group-label">Workflow</div>
+      <a href="#weekly">Weekly cycle</a>
+      <a href="#agents">9 agent roles</a>
+    </nav>
+  </aside>
+
+  <!-- ═══════════════ Main ═══════════════ -->
+  <main>
+
+    <!-- ── Hero ── -->
+    <div class="hero">
+      <h1>Research Knowledge System</h1>
+      <p class="subtitle">A personal knowledge base where every answer is traceable to a paper you actually own.</p>
+      <p>Cloud AI for the public corpus. Local AI for unpublished work. One file system shared across both.</p>
+      <div class="demo-note">
+        <strong>📖 This is an interactive walkthrough.</strong>
+        Click buttons and dropdowns throughout to see how each part of the system works. All examples use a generic motor-learning topic.
+      </div>
+    </div>
+
+    <!-- ── Section: Overview ── -->
+    <section id="overview">
+      <p class="section-kicker">Philosophy</p>
+      <h2>Why this system exists</h2>
+      <p>Researchers accumulate hundreds of PDFs. Context evaporates between sessions. Large language models hallucinate citations that look real. Unpublished work must never touch cloud AI.</p>
+      <p>This system solves all three with one design rule:</p>
+      <div class="rule-block">
+        <strong>The wiki is the evidence layer. The LLM is the reasoning layer.</strong><br>
+        Every answer is grounded in a paper that physically exists in <code>papers/</code>. Cross-paper synthesis lives in <code>wiki/overviews/</code>. Confidential drafting runs on a local LLM that the cloud cannot see.
+      </div>
+    </section>
+
+    <!-- ── Section: Four Rules ── -->
+    <section id="rules">
+      <p class="section-kicker">Non-negotiable</p>
+      <h2>The Four Rules</h2>
+      <p>These apply to every cloud agent in every conversation. They prevent hallucination and keep every claim traceable.</p>
+
+      <div class="rule-block"><span class="rule-num">1</span><strong>No web search.</strong> Never use external search to fill gaps. The point of this wiki is that every answer is grounded in papers we actually own.</div>
+      <div class="rule-block"><span class="rule-num">2</span><strong>Answer from the wiki first.</strong> Use <code>sources/</code> and <code>wiki/</code> as the only sources of truth.</div>
+      <div class="rule-block"><span class="rule-num">3</span><strong>If the wiki is insufficient, re-read the PDF.</strong> Go to <code>papers/{stem}.pdf</code> and extract more detail. Then update the wiki.</div>
+      <div class="rule-block"><span class="rule-num">4</span><strong>If the wiki has no paper on the topic, say so.</strong> "I don't have a paper on this — please give me the PDF." Do not improvise.</div>
+    </section>
+
+    <!-- ── Section: Architecture ── -->
+    <section id="architecture">
+      <p class="section-kicker">Architecture</p>
+      <h2>Three spaces × Two tiers</h2>
+      <p>Everything lives in one folder on your machine. What changes is <strong>which AI is allowed to read each part</strong>.</p>
+
+      <div class="grid-3">
+        <div class="card cloud">
+          <span class="pill pill-cloud">cloud-ok</span>
+          <h4 style="margin-top:10px">📚 LIBRARY</h4>
+          <p><code>papers/</code>, <code>sources/</code>, <code>wiki/</code>, <code>index.md</code></p>
+          <p style="font-size:0.86rem;color:var(--muted)">Permanent knowledge base. Built by cloud agents. Read by everyone.</p>
+        </div>
+        <div class="card cloud">
+          <span class="pill pill-cloud">cloud-ok</span>
+          <h4 style="margin-top:10px">💡 EXPLORATION</h4>
+          <p><code>explorations/idea-notes/</code><br><code>explorations/active/{slug}/</code></p>
+          <p style="font-size:0.86rem;color:var(--muted)">Pre-project incubator. No unpublished hypotheses.</p>
+        </div>
+        <div class="card local">
+          <span class="pill pill-local">local-only</span>
+          <h4 style="margin-top:10px">🔒 PROJECT</h4>
+          <p><code>projects/{slug}/</code></p>
+          <p style="font-size:0.86rem;color:var(--muted)">Grant · paper_in_prep · review_article. LOCAL LLM ONLY.<br><em>Exception: library_ingest projects → cloud-ok.</em></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Section: Confidentiality ── -->
+    <section id="confidentiality">
+      <p class="section-kicker">Routing</p>
+      <h2>Confidentiality is a routing rule</h2>
+      <p>The files are on the same machine. What changes is the AI lane.</p>
+
+      <div class="grid-2">
+        <div class="card cloud">
+          <h4>✓ Cloud AI may read</h4>
+          <ul style="margin:6px 0; padding-left:20px;">
+            <li><code>papers/</code> (published corpus)</li>
+            <li><code>sources/</code>, <code>wiki/</code>, <code>overviews/</code></li>
+            <li><code>explorations/</code> (public-facing)</li>
+            <li><code>library_ingest</code> project briefs</li>
+            <li><code>index.md</code></li>
+          </ul>
+        </div>
+        <div class="card local">
+          <h4>✗ Local LLM only</h4>
+          <ul style="margin:6px 0; padding-left:20px;">
+            <li><code>projects/{slug}/</code> (grant, paper_in_prep, review)</li>
+            <li><code>papers/under-review/</code></li>
+            <li><code>explorations/active/*/_pdfs/</code></li>
+            <li>Any file with <code>confidential_tier: local-only</code></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="rule-block danger">
+        <strong>Hard refusal:</strong> If a cloud agent encounters a confidential path, it must refuse — even if the user says "do it here anyway." This is the only non-overridable rule in the routing system.
+      </div>
+    </section>
+
+    <!-- ── Section: Top bar ── -->
+    <section id="topbar">
+      <p class="section-kicker">Dashboard tour</p>
+      <h2>1. Top bar — server status & workflow</h2>
+      <p>The top of the dashboard shows the system at a glance.</p>
+
+      <div class="mock-panel">
+        <div style="display:flex; gap:16px; align-items:center; padding-bottom:8px; border-bottom:1px solid var(--line); margin-bottom:12px;">
+          <strong>LLM-Wiki Dashboard</strong>
+          <span class="pill pill-gray">v2.1</span>
+          <span style="margin-left:auto"></span>
+          <span class="pill pill-cloud">🟢 Server online</span>
+          <button class="btn" onclick="toggleInfo('topbar-server')">Stop</button>
+        </div>
+        <div class="workflow-bar">
+          <div class="wf-phase build"><strong>Build</strong> (cloud) · Scout → Triage → Ingest</div>
+          <span>→</span>
+          <div class="wf-phase use"><strong>Use</strong> (cloud) · Wiki → Synth</div>
+          <span>→</span>
+          <div class="wf-phase conf"><strong>Confidential</strong> (local) · Drafter → Argue → Demon</div>
+        </div>
+        <div class="info-popup" id="topbar-server">
+          <h5>Server status</h5>
+          Green = local API running at <code>127.0.0.1:8765</code>. The dashboard uses this to actually run scripts (Quick Scout, Ingester, Local LLM, etc.). Red = read-only mode — buttons only copy commands instead of running them.
+        </div>
+      </div>
+
+      <p><button class="btn btn-teal" onclick="toggleInfo('topbar-info')">What is the workflow bar?</button></p>
+      <div class="info-popup" id="topbar-info">
+        <h5>Three-phase workflow</h5>
+        <strong>Build</strong> = adding papers to the wiki (cloud, Codex CLI). &nbsp;
+        <strong>Use</strong> = reading and synthesizing the wiki (cloud, Claude Code). &nbsp;
+        <strong>Confidential</strong> = drafting unpublished work (local LLM only).
+      </div>
+    </section>
+
+    <!-- ── Section: Quick Scout ── -->
+    <section id="quick-scout">
+      <p class="section-kicker">Dashboard tour</p>
+      <h2>2. Quick Scout — find new papers</h2>
+      <p>Add papers to the wiki in one click. Searches PubMed, arXiv, bioRxiv, and Semantic Scholar against a topic.</p>
+
+      <div class="mock-panel">
+        <div class="panel-kicker">Build phase</div>
+        <h4>Quick Scout</h4>
+        <p style="font-size:0.85rem; color:var(--muted)">Run a paper scout campaign in one click. New topic scouts are saved under <code>scouts/{slug}/</code>.</p>
+
+        <div class="mock-form-row">
+          <label><span>Topic</span>
+            <input class="mock-input" type="text" value="Does {topic} play a role in {phenomenon}?" readonly>
+          </label>
+        </div>
+        <div class="mock-form-row">
+          <label><span>Keywords (optional)</span>
+            <input class="mock-input" type="text" placeholder="keyword, keyword, keyword" readonly>
+          </label>
+        </div>
+        <div class="mock-form-row">
+          <label style="max-width:120px"><span>Year from</span><input class="mock-input" type="text" value="2020" readonly></label>
+          <label style="max-width:120px"><span>Year to</span><input class="mock-input" type="text" value="2026" readonly></label>
+          <button class="btn btn-primary" onclick="toggleInfo('qs-run')">Run Scout</button>
+        </div>
+
+        <div class="info-popup" id="qs-run">
+          <h5>What happens when you click Run Scout</h5>
+          <ol style="margin:6px 0 0; padding-left:20px;">
+            <li>Creates <code>scouts/{slug}/Scout_Brief.md</code> with your topic and keywords.</li>
+            <li>Queries PubMed, arXiv, bioRxiv, and Semantic Scholar in parallel.</li>
+            <li>Saves all candidates to <code>scouts/{slug}/candidates/{date}/</code>.</li>
+            <li>Generates a triage approval board so you can decide which PDFs to download.</li>
+          </ol>
+          <p style="margin-top:8px"><em>Nothing enters the wiki yet — human approval is required first.</em></p>
+        </div>
+      </div>
+
+      <h3>The scout history</h3>
+      <p>Every previous scout campaign is preserved in <code>scouts/</code> with its keywords. Click any past scout to re-run it or to see overlap with your current topic.</p>
+    </section>
+
+    <!-- ── Section: Explorations ── -->
+    <section id="explorations">
+      <p class="section-kicker">Dashboard tour</p>
+      <h2>3. Idea incubator — explore before committing</h2>
+      <p>Quick thoughts go to <code>idea-notes/</code>. Promising ones become <code>Exploration_Brief</code>s. Active explorations get their own folder with scouts, paper-briefs, and synthesis.</p>
+
+      <div class="mock-panel">
+        <div class="panel-kicker">Idea / Exploration flow</div>
+        <h4>Capture new idea</h4>
+        <div class="mock-form-row">
+          <label><span>Idea title</span>
+            <input class="mock-input" type="text" value="Does {topic} play a role in {phenomenon}?" readonly>
+          </label>
+          <label style="max-width:200px"><span>Short slug</span>
+            <input class="mock-input" type="text" placeholder="(auto)" readonly>
+          </label>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <button class="btn btn-teal" onclick="toggleInfo('idea-save')">Save idea note</button>
+          <button class="btn" onclick="toggleInfo('idea-skeptic')">Skeptic review</button>
+          <button class="btn" onclick="toggleInfo('idea-promote')">Promote to active</button>
+        </div>
+
+        <div class="info-popup" id="idea-save">
+          <h5>Save idea note</h5>
+          Writes <code>explorations/idea-notes/{slug}.md</code>. A lightweight evolving summary — not a full proposal.
+        </div>
+        <div class="info-popup" id="idea-skeptic">
+          <h5>Skeptic review</h5>
+          Cloud agent assesses whether the idea is ready for paper scouting. Verdicts: <em>not-ready</em>, <em>brief-ready</em>, <em>scout-ready</em>, <em>project-ready</em>.
+        </div>
+        <div class="info-popup" id="idea-promote">
+          <h5>Promote to active</h5>
+          Creates <code>explorations/active/{slug}/</code> folder with candidates/, paper-briefs/, synthesis.md. Active explorations can run their own scouts.
+        </div>
+      </div>
+
+      <div class="rule-block warn">
+        <strong>Boundary rule:</strong> Explorations are public-facing — they map literature and discuss general topics. They never contain unpublished hypotheses or grant aims. Those belong in confidential projects.
+      </div>
+    </section>
+
+    <!-- ── Section: Project launcher (THE BIG ONE) ── -->
+    <section id="project-launcher">
+      <p class="section-kicker">Dashboard tour · ★ Most important</p>
+      <h2>4. Project command launcher</h2>
+      <p>This is where confidential drafting happens. Pick a project, pick an action, click Run.</p>
+      <p>Below is a live demo of the action dropdown for a <code>paper_in_prep</code> project. <strong>Click any action on the left</strong> to see what it does on the right.</p>
+
+      <div class="mock-panel">
+        <div style="display:flex; gap:12px; align-items:flex-end; margin-bottom:12px;">
+          <label style="flex:1"><span style="display:block; font-size:0.78rem; font-weight:600; color:var(--gray-700); margin-bottom:4px">PROJECT</span>
+            <select class="mock-select">
+              <option>2026-motor-learning-paper (local-only)</option>
+            </select>
+          </label>
+          <label style="flex:2"><span style="display:block; font-size:0.78rem; font-weight:600; color:var(--gray-700); margin-bottom:4px">ACTION</span>
+            <select class="mock-select" id="action-select-mirror">
+              <option>← Click any action below ↓</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="action-demo">
+          <div class="action-demo-grid">
+            <!-- LEFT: action list -->
+            <div class="action-list">
+
+              <div class="action-group-label">0. Pre-drafting prep</div>
+              <div class="action-item cloud-action" data-action="pre-drafter">
+                <span>Analyze wiki relevance</span>
+                <span class="action-item-tool">cloud-safe</span>
+              </div>
+              <div class="action-item" data-action="open-drafts">
+                <span>Open user-drafts folder</span>
+                <span class="action-item-tool">finder</span>
+              </div>
+              <div class="action-item local-action" data-action="planner">
+                <span>Run local Planner</span>
+                <span class="action-item-tool">Local LLM</span>
+              </div>
+
+              <div class="action-group-label">0b. Figure flow & data</div>
+              <div class="action-item" data-action="figure-flow">
+                <span>Open figure-flow.md</span>
+                <span class="action-item-tool">editor</span>
+              </div>
+              <div class="action-item" data-action="data-needed">
+                <span>Open data-needed.md</span>
+                <span class="action-item-tool">editor</span>
+              </div>
+
+              <div class="action-group-label">0c. Scout brief (sanitize before cloud)</div>
+              <div class="action-item local-action" data-action="scout-brief">
+                <span>Generate scout brief</span>
+                <span class="action-item-tool">Local LLM</span>
+              </div>
+              <div class="action-item local-action" data-action="export-brief">
+                <span>Export scout brief → scouts/</span>
+                <span class="action-item-tool">Local agent</span>
+              </div>
+
+              <div class="action-group-label">1. Drafting</div>
+              <div class="action-item local-action" data-action="drafter">
+                <span>Draft — choose section below ★</span>
+                <span class="action-item-tool">Local LLM</span>
+              </div>
+
+              <div class="action-group-label">2. Critique</div>
+              <div class="action-item local-action" data-action="argue">
+                <span>Argue (Reviewer #2)</span>
+                <span class="action-item-tool">Local LLM</span>
+              </div>
+              <div class="action-item local-action" data-action="demon">
+                <span>Demon (devil's advocate)</span>
+                <span class="action-item-tool">Local LLM</span>
+              </div>
+
+              <div class="action-group-label">3. Pre-submission</div>
+              <div class="action-item local-action" data-action="rejection-sim">
+                <span>Rejection Simulator</span>
+                <span class="action-item-tool">Local LLM</span>
+              </div>
+
+            </div>
+
+            <!-- RIGHT: action detail -->
+            <div class="action-detail" id="action-detail">
+              <div class="placeholder">← Click an action on the left to see what it does.</div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Section: Drafter Homework Flow ── -->
+    <section id="drafter-homework">
+      <p class="section-kicker">Dashboard tour · ★ Most important</p>
+      <h2>5. Drafter homework flow — the LLM amplifies, not replaces</h2>
+      <p>The Drafter <strong>cannot write from a blank page</strong>. You must do the homework first.</p>
+      <p style="margin-bottom:20px">This is by design. Without your own framing in <code>user-drafts/</code>, the LLM has nothing to amplify and the output collapses into generic boilerplate. The system forces you to think first.</p>
+
+      <div class="flow" style="margin-bottom:18px">
+        <div class="flow-step local">
+          <strong>1. User skeleton</strong><br>
+          <span style="font-size:0.78rem; color:var(--muted)">user-drafts/{section}.md</span>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step cloud">
+          <strong>2. Wiki context</strong><br>
+          <span style="font-size:0.78rem; color:var(--muted)">wiki_context.md</span>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step local">
+          <strong>3. Drafter amplifies</strong><br>
+          <span style="font-size:0.78rem; color:var(--muted)">Drafts/{section}.md</span>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step" style="background:#fff">
+          <strong>4. /compare → iterate</strong><br>
+          <span style="font-size:0.78rem; color:var(--muted)">side-by-side review</span>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card local">
+          <h4>Step 1 — Write your own skeleton</h4>
+          <p style="font-size:0.88rem">Open <code>user-drafts/{section}.md</code> and write 5–10 lines:</p>
+          <ul style="font-size:0.88rem; margin:6px 0; padding-left:20px;">
+            <li>The central claim of this section</li>
+            <li>The framing or narrative angle</li>
+            <li>Which papers to cite (by wiki page name)</li>
+            <li>What contradictions or limitations to acknowledge</li>
+          </ul>
+          <p style="font-size:0.85rem; color:var(--muted); margin-top:10px"><strong>Why:</strong> This is the user's contribution. The LLM reads it as instructions, not as content to copy.</p>
+        </div>
+        <div class="card cloud">
+          <h4>Step 2 — Load wiki context</h4>
+          <p style="font-size:0.88rem">Click "Analyze wiki relevance" with topic keywords. <code>pre_drafter.py</code> scans <code>sources/</code> and <code>wiki/</code> for relevant pages and writes:</p>
+          <pre style="font-size:0.78rem; margin:6px 0; padding:8px 10px">projects/{slug}/wiki_context.md</pre>
+          <p style="font-size:0.85rem; color:var(--muted); margin-top:6px"><strong>Why:</strong> The Drafter only cites papers in wiki_context.md. No invented citations. No hallucinations.</p>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-top:14px">
+        <div class="card local">
+          <h4>Step 3 — Drafter reads + writes</h4>
+          <p style="font-size:0.88rem">Click "Draft — choose section". The Drafter loads:</p>
+          <pre style="font-size:0.78rem; margin:6px 0; padding:8px 10px">Project_Brief.md
+wiki_context.md          ← from step 2
+user-drafts/{section}.md ← from step 1
+Drafts/{section}.md      ← prior version (if any)</pre>
+          <p style="font-size:0.85rem">Then writes a new version that builds on your skeleton, cites real wiki papers, and respects your framing.</p>
+        </div>
+        <div class="card">
+          <h4>Step 4 — Compare and iterate</h4>
+          <p style="font-size:0.88rem">Inside the Drafter session:</p>
+          <ul style="font-size:0.85rem; margin:6px 0; padding-left:20px;">
+            <li><code>/compare</code> — side-by-side: your draft vs Drafter's draft</li>
+            <li><code>/save</code> — accept the new version → <code>Drafts/{section}.md</code></li>
+            <li><code>/export-docx</code> — Word output with citations</li>
+            <li>Edit user-drafts/, run again</li>
+          </ul>
+          <p style="font-size:0.85rem; color:var(--muted); margin-top:6px">Each iteration: <strong>you sharpen the skeleton, the Drafter amplifies</strong>.</p>
+        </div>
+      </div>
+
+      <div class="rule-block warn" style="margin-top:18px">
+        <strong>If you skip Step 1:</strong> the Drafter will run, but the output is generic — paragraphs that could be in any paper. The user's contribution is the skeleton. The LLM's contribution is the prose density and citation grounding. Both halves are required.
+      </div>
+
+      <p style="margin-top:18px"><button class="btn btn-amber" onclick="toggleInfo('homework-example')">Show example skeleton</button></p>
+      <div class="info-popup amber" id="homework-example">
+        <h5>Example: user-drafts/introduction.md (skeleton, ~8 lines)</h5>
+<pre style="font-size:0.82rem; margin-top:8px; background:#fff">## Central claim
+{Topic} is necessary, not just sufficient, for {phenomenon}.
+
+## Framing
+Open with the long-running uncertainty: necessity vs sufficiency.
+Then narrow to recent loss-of-function evidence.
+
+## Papers to cite (wiki page names)
+- topic-a/{paper1}.md
+- methods/{paper2}.md
+- overviews/your-overview.md  (synthesis)
+
+## Limitation to acknowledge
+Optogenetic timing constraints — cite {paper3}.md
+
+## End with
+The gap our work fills (no specific results yet).</pre>
+        <p style="margin-top:8px; font-size:0.85rem">The Drafter reads this and writes a real introduction following your structure — but with real citations from your wiki and prose that fills the gaps.</p>
+      </div>
+    </section>
+
+    <!-- ── Section: Scout Brief ── -->
+    <section id="scout-brief">
+      <p class="section-kicker">Dashboard tour</p>
+      <h2>6. Scout brief system — zero identity leakage</h2>
+      <p>How does a confidential project search the public paper corpus without leaking what it's about?</p>
+
+      <div class="flow">
+        <div class="flow-step local">📁 Project_Brief.md<br><span style="font-size:0.72rem; color:var(--muted)">local-only</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step local">🤖 Local LLM<br><span style="font-size:0.72rem; color:var(--muted)">writes sanitized brief</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step local">🔍 Self-simulation<br><span style="font-size:0.72rem; color:var(--muted)">"can the project be guessed?"</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step cloud">📤 scouts/<br><span style="font-size:0.72rem; color:var(--muted)">cloud-ok export</span></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card local">
+          <h4>The brief must NOT contain</h4>
+          <ul style="margin:6px 0; padding-left:20px; font-size:0.88rem;">
+            <li>The specific hypothesis</li>
+            <li>Unpublished data or pilot results</li>
+            <li>PI name, lab name, institution</li>
+            <li>Grant aims or specific objectives</li>
+            <li>The project slug or title</li>
+            <li>Any distinctive transgenic line or rare model</li>
+          </ul>
+        </div>
+        <div class="card cloud">
+          <h4>The brief MAY contain</h4>
+          <ul style="margin:6px 0; padding-left:20px; font-size:0.88rem;">
+            <li>Broad scientific field (e.g., "your research area AND method")</li>
+            <li>Standard MeSH terms used across the field</li>
+            <li>Names of widely-cited public researchers</li>
+            <li>Generic year range</li>
+            <li>Generic exclusion criteria</li>
+            <li>Sources to search</li>
+          </ul>
+        </div>
+      </div>
+
+      <p><button class="btn btn-teal" onclick="toggleInfo('brief-validate')">How does the validator work?</button></p>
+      <div class="info-popup" id="brief-validate">
+        <h5>Server-side validation (before export)</h5>
+        <ol style="margin:6px 0; padding-left:20px;">
+          <li>Frontmatter must contain <code>simulation_passed: true</code>. Otherwise export blocked.</li>
+          <li>The project slug must not appear anywhere in the body. Otherwise export blocked.</li>
+          <li>Only then is the file copied to <code>scouts/project-{slug}/Scout_Brief.md</code>.</li>
+        </ol>
+        <p style="margin-top:8px"><strong>Result:</strong> Even if the local LLM violates the rules, the server catches it before any text leaves the confidential zone.</p>
+      </div>
+    </section>
+
+    <!-- ── Section: Wiki ── -->
+    <section id="wiki">
+      <p class="section-kicker">Dashboard tour</p>
+      <h2>7. Wiki viewer — Obsidian integration</h2>
+      <p>The wiki is plain markdown with <code>[[wikilinks]]</code>. Open the repository as an Obsidian vault to browse the graph view, follow links, and full-text search.</p>
+
+      <div class="mock-panel">
+        <div class="panel-kicker">Wiki viewer</div>
+        <h4>Open in Obsidian</h4>
+        <p style="font-size:0.86rem; color:var(--muted)">
+          The dashboard's Wiki Viewer launches Obsidian pointed at this repo. Start at <code>index.md</code> or <code>wiki/overviews/</code>, then use Graph View to see [[wikilink]] connections.
+        </p>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-teal" onclick="toggleInfo('wiki-open')">📖 Open in Obsidian</button>
+          <button class="btn" onclick="toggleInfo('wiki-graph')">🌐 Graph view</button>
+        </div>
+
+        <div class="info-popup" id="wiki-open">
+          <h5>Opens Obsidian with this repo as vault</h5>
+          One-time setup creates the vault config. After that, every wiki page is browsable with links, backlinks, and tag search.
+        </div>
+        <div class="info-popup" id="wiki-graph">
+          <h5>Graph view</h5>
+          Shows every wiki page as a node and every [[wikilink]] as an edge. <code>wiki/overviews/</code> pages become the central hubs.
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Section: Mendeley ── -->
+    <section id="mendeley">
+      <p class="section-kicker">Dashboard tour</p>
+      <h2>8. Mendeley integration — two systems, one source of truth</h2>
+      <p>The wiki is your <strong>reading memory</strong>. Mendeley is your <strong>citation manager</strong>. Same PDFs, no manual duplication.</p>
+
+      <div class="grid-2">
+        <div class="card cloud">
+          <h4>📚 LLM-Wiki</h4>
+          <p style="font-size:0.86rem; color:var(--muted); font-style:italic">Curated reading memory</p>
+          <ul style="font-size:0.88rem; margin:8px 0; padding-left:20px;">
+            <li>Papers you have <em>read + synthesized</em></li>
+            <li>Structured source summaries</li>
+            <li>Cross-paper overviews</li>
+            <li>Reasoning substrate for LLMs</li>
+          </ul>
+          <p style="font-size:0.85rem; font-weight:600; color:var(--teal); margin-top:8px">Selected. Read. Synthesized.</p>
+        </div>
+        <div class="card blue">
+          <h4>📖 Mendeley</h4>
+          <p style="font-size:0.86rem; color:var(--muted); font-style:italic">Citation manager</p>
+          <ul style="font-size:0.88rem; margin:8px 0; padding-left:20px;">
+            <li>Reference library for Word</li>
+            <li>Automatic citation insertion</li>
+            <li>BibTeX export</li>
+            <li>Personal reference catalog</li>
+          </ul>
+          <p style="font-size:0.85rem; font-weight:600; color:var(--blue); margin-top:8px">Comprehensive. Citation-ready.</p>
+        </div>
+      </div>
+
+      <h3>Two-way sync via scripts</h3>
+      <div class="mock-panel">
+        <div class="panel-kicker">Mendeley bridge</div>
+        <h4>After ingesting a paper, sync it to Mendeley</h4>
+        <p style="font-size:0.85rem; color:var(--muted)">When a PDF enters <code>papers/</code> via the Ingester, you decide whether to also push it into Mendeley's watched folder.</p>
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px">
+          <button class="btn btn-teal" onclick="toggleInfo('mendeley-sync')">▶ Copy to Mendeley watch folder</button>
+          <button class="btn" onclick="toggleInfo('mendeley-audit')">Audit Mendeley library</button>
+          <button class="btn" onclick="toggleInfo('mendeley-rules')">Why two systems?</button>
+        </div>
+
+        <div class="info-popup" id="mendeley-sync">
+          <h5>sync_to_mendeley_watch.py</h5>
+          Copies the canonical <code>papers/{stem}.pdf</code> into <code>_system/mendeley/watch/</code> — Mendeley's configured watched folder. Mendeley auto-imports it on its next scan.
+          <pre style="font-size:0.78rem; margin-top:8px">python3 scripts/sync_to_mendeley_watch.py --paper papers/{stem}.pdf</pre>
+          <p style="margin-top:6px; font-size:0.84rem"><strong>Direction:</strong> wiki → Mendeley (one-way).<br><strong>Mendeley's internal storage is read-only</strong> from the wiki side — never renamed or moved.</p>
+        </div>
+        <div class="info-popup" id="mendeley-audit">
+          <h5>audit_mendeley_export.py</h5>
+          Reads Mendeley's BibTeX export and compares against the wiki. Finds:
+          <ul style="margin:6px 0; padding-left:20px; font-size:0.85rem">
+            <li>Papers in Mendeley but missing from the wiki (candidates to ingest)</li>
+            <li>Papers in the wiki but missing from Mendeley (candidates to push)</li>
+            <li>Metadata mismatches (DOI, year, author)</li>
+          </ul>
+          <pre style="font-size:0.78rem; margin-top:8px">python3 scripts/audit_mendeley_export.py</pre>
+          <p style="margin-top:6px; font-size:0.84rem"><strong>Audit-only</strong> — never modifies Mendeley. Generates a report in <code>_system/mendeley/review/</code>.</p>
+        </div>
+        <div class="info-popup" id="mendeley-rules">
+          <h5>Why keep them separate?</h5>
+          <p style="font-size:0.88rem">Each system is optimized for a different job:</p>
+          <ul style="margin:6px 0; padding-left:20px; font-size:0.86rem">
+            <li><strong>Mendeley</strong> stores every paper you might cite. It plays nicely with Word's cite-while-you-write. But its database is opaque to LLMs.</li>
+            <li><strong>LLM-Wiki</strong> stores only papers you've actually read + synthesized. Plain markdown, queryable, citable by LLMs, version-controlled.</li>
+          </ul>
+          <p style="font-size:0.86rem; margin-top:8px">Trying to make one system do both means losing what makes each good. The sync scripts let you have both without duplicating work.</p>
+        </div>
+      </div>
+
+      <div class="rule-block">
+        <strong>The boundary rule:</strong> Mendeley is read-only from the wiki's perspective. The wiki never renames, moves, or deletes anything in Mendeley's internal folders. Sync is one-way: wiki → Mendeley watch folder. Mendeley does its own import on its own schedule.
+      </div>
+    </section>
+
+    <!-- ── Section: Backup ── -->
+    <section id="backup">
+      <p class="section-kicker">Dashboard tour</p>
+      <h2>9. Backup</h2>
+      <p>The dashboard can run encrypted backups of the entire repository (papers/, wiki/, projects/) to an external drive or cloud sync folder.</p>
+
+      <div class="mock-panel">
+        <div class="panel-kicker">Backup</div>
+        <h4>Encrypted snapshot</h4>
+        <div class="mock-form-row">
+          <label><span>Backup destination</span>
+            <input class="mock-input" type="text" value="(configured externally)" readonly>
+          </label>
+          <button class="btn btn-teal" onclick="toggleInfo('backup-run')">▶ Run backup</button>
+          <button class="btn" onclick="toggleInfo('backup-list')">View history</button>
+        </div>
+        <div class="info-popup" id="backup-run">
+          <h5>Run backup</h5>
+          Uses <code>restic</code> to make an encrypted, deduplicated snapshot. The destination is configured locally and never exposed in the dashboard UI.
+        </div>
+        <div class="info-popup" id="backup-list">
+          <h5>View history</h5>
+          Lists prior snapshots with date, size, and number of files. Restore is a separate command for safety.
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Section: Weekly workflow ── -->
+    <section id="weekly">
+      <p class="section-kicker">Workflow</p>
+      <h2>Weekly cycle — end to end</h2>
+
+      <h3>Phase 1 — BUILD (cloud, Codex CLI)</h3>
+      <div class="flow">
+        <div class="flow-step cloud">Scout</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step cloud">Triage</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step" style="background:#fff">Human approval</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step cloud">Ingest PDF</div>
+      </div>
+
+      <h3>Phase 2 — USE (cloud, Claude Code)</h3>
+      <div class="flow">
+        <div class="flow-step cloud">Q&amp;A from wiki</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step cloud">Synthesize overviews</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step cloud">Explore new ideas</div>
+      </div>
+
+      <h3>Phase 3 — CONFIDENTIAL (local LLM)</h3>
+      <div class="flow">
+        <div class="flow-step local">Draft section</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step local">Argue critique</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step local">Demon check</div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step local">Rejection sim</div>
+      </div>
+
+      <div class="rule-block">
+        <strong>The loop:</strong> Durable insights from confidential work → manual redaction → promote to <code>wiki/overviews/</code> → cloud agents read them in the next cycle. Knowledge compounds across projects.
+      </div>
+    </section>
+
+    <!-- ── Section: Agents ── -->
+    <section id="agents">
+      <p class="section-kicker">Workflow</p>
+      <h2>9 agent roles</h2>
+      <p>Each role is a markdown spec in <code>subagents/</code>. The dashboard's Run buttons just open the right agent with the right context.</p>
+
+      <table class="simple">
+        <thead><tr><th>#</th><th>Role</th><th>Tool</th><th>Job</th></tr></thead>
+        <tbody>
+          <tr class="cloud"><td>1</td><td>Scout</td><td>Codex CLI</td><td>Query PubMed / arXiv / bioRxiv / Semantic Scholar</td></tr>
+          <tr class="cloud"><td>2</td><td>Triage</td><td>Codex CLI</td><td>Score candidates: in-scope / borderline / out</td></tr>
+          <tr class="cloud"><td>3</td><td>Ingester</td><td>Codex CLI</td><td>PDF → papers/ + sources/ + wiki/</td></tr>
+          <tr class="cloud"><td>4</td><td>Synthesizer</td><td>Claude Code</td><td>Cross-paper synthesis → wiki/overviews/</td></tr>
+          <tr class="cloud"><td>5</td><td>Exploration Skeptic</td><td>Claude Code</td><td>Gate idea → exploration promotion</td></tr>
+          <tr class="divider"><td colspan="4">— LOCAL LLM ONLY (confidential zone) —</td></tr>
+          <tr class="local"><td>6</td><td>Drafter</td><td>Local LLM</td><td>Write manuscript / grant sections</td></tr>
+          <tr class="local"><td>7</td><td>Argue</td><td>Local LLM</td><td>Reviewer-#2-style pressure test</td></tr>
+          <tr class="local"><td>8</td><td>Demon</td><td>Local LLM</td><td>Devil's-advocate / desk-reject critique</td></tr>
+          <tr class="local"><td>9</td><td>Rejection-Sim</td><td>Local LLM</td><td>Pre-mortem: funder/journal rejection</td></tr>
+        </tbody>
+      </table>
+
+      <p style="margin-top:24px; padding-top:24px; border-top:1px solid var(--line); color:var(--muted); font-size:0.86rem; text-align:center;">
+        Research Knowledge System · Interactive Guide · Single-file demo version<br>
+        Click any sidebar link or button to explore. No data leaves this page.
+      </p>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  // ─── Toggle info popups ───
+  function toggleInfo(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle('show');
+  }
+
+  // ─── Action dropdown demo ───
+  const actionData = {
+    "pre-drafter": {
+      title: "Analyze wiki relevance",
+      tool: "cloud-safe",
+      class: "cloud-action",
+      desc: "Scans the public wiki and sources/ for pages relevant to topic keywords you provide. Writes <code>wiki_context.md</code> into the project folder so the local Drafter can cite real wiki pages instead of hallucinating.",
+      cmd: "python3 scripts/pre_drafter.py --project {slug} --type paper_in_prep --keywords \"…\"",
+      when: "Run this FIRST, before any drafting. Without wiki_context.md, the Drafter has no grounding."
+    },
+    "open-drafts": {
+      title: "Open user-drafts folder",
+      tool: "Finder",
+      desc: "Opens <code>projects/{slug}/user-drafts/</code> in Finder. Write your own section skeleton here (introduction.md, methods.md, etc.) BEFORE running the Drafter. The Drafter will read these as your direction.",
+      cmd: "open projects/{slug}/user-drafts/",
+      when: "Write 5–10 lines per section in user-drafts/ before drafting."
+    },
+    "planner": {
+      title: "Run local Planner (discussion)",
+      tool: "Local LLM",
+      class: "local-action",
+      desc: "Opens a Terminal connected to the local LLM in Planner mode. Use it to refine the research question, the figure narrative, or the aims. Conversational — type questions, get answers.",
+      cmd: "python3 scripts/local_agent.py --role planner --project {slug}",
+      when: "When the brief is vague, or before locking in figure flow."
+    },
+    "figure-flow": {
+      title: "Open figure-flow.md",
+      tool: "Editor",
+      desc: "Opens the figure narrative file. One line per figure: what it proves and why in this order. The Drafter reads this so its prose matches your story arc.",
+      cmd: "open projects/{slug}/figure-flow.md"
+    },
+    "data-needed": {
+      title: "Open data-needed.md",
+      tool: "Editor",
+      desc: "Tracks what data each figure panel needs and whether it exists. Status: needed / in-progress / done. Use this to plan experiments before writing.",
+      cmd: "open projects/{slug}/data-needed.md"
+    },
+    "scout-brief": {
+      title: "Generate scout brief",
+      tool: "Local LLM",
+      class: "local-action",
+      desc: "Local LLM reads Project_Brief.md and writes a <strong>sanitized</strong> search brief — zero project identity leakage. Forbidden: specific hypothesis, PI name, unpublished data, project slug. Self-simulates whether the project can be guessed from the file alone.",
+      cmd: "python3 scripts/local_agent.py --role scout-brief --project {slug}",
+      when: "When you want cloud Scout to search the literature for your project, without exposing what you're working on."
+    },
+    "export-brief": {
+      title: "Export scout brief → scouts/",
+      tool: "Local agent",
+      class: "local-action",
+      desc: "Validates the brief (simulation_passed:true required, project slug must not appear) and copies it to <code>scouts/project-{slug}/Scout_Brief.md</code> — the cloud-readable zone. Cloud Scout can then run against it.",
+      cmd: "(Run button — server validates then copies)",
+      when: "After Generate scout brief succeeds and you've reviewed the output."
+    },
+    "drafter": {
+      title: "Draft — choose section below",
+      tool: "Local LLM",
+      class: "local-action",
+      desc: "The Drafter writes one section of your manuscript. <strong>Pick which section</strong> from the sub-selector that appears. <strong style='color:var(--amber-dark)'>⚠ Drafter cannot write from blank page</strong> — you must write a skeleton in user-drafts/{section}.md first. See <a href='#drafter-homework'>Drafter homework flow</a>.",
+      cmd: "python3 scripts/local_agent.py --role drafter --project {slug} --section {section}",
+      when: "After (1) writing your skeleton in user-drafts/, and (2) running Analyze wiki relevance.",
+      special: "section-demo"
+    },
+    "argue": {
+      title: "Argue (Reviewer #2)",
+      tool: "Local LLM",
+      class: "local-action",
+      desc: "Reviewer-#2-style pressure test. The Argue agent reads a draft section and writes a constructive but tough critique. Targets weak claims, unsupported logic, missing controls, statistical issues.",
+      cmd: "python3 scripts/local_agent.py --role argue --project {slug} --section {section}",
+      when: "After drafting a section, before sharing with co-authors."
+    },
+    "demon": {
+      title: "Demon (devil's advocate)",
+      tool: "Local LLM",
+      class: "local-action",
+      desc: "Hostile desk-reject critique. The Demon assumes the worst-case reader — an editor looking for reasons to reject. Surfaces fatal framings, scope overreach, claims that wouldn't survive 5 minutes of skepticism.",
+      cmd: "python3 scripts/local_agent.py --role demon --project {slug} --section {section}",
+      when: "Run on the brief and figure-flow EARLY, not after the full draft is done."
+    },
+    "rejection-sim": {
+      title: "Rejection Simulator",
+      tool: "Local LLM",
+      class: "local-action",
+      desc: "Pre-mortem. Simulates likely funder/journal rejection reasons before you submit. Asks: \"If this gets rejected, what will the reviewer say?\" — then helps you fix those issues now.",
+      cmd: "python3 scripts/local_agent.py --role rejection-sim --project {slug}",
+      when: "1–2 weeks before submission. Catches strategic problems that section-level critique misses."
+    }
+  };
+
+  function renderActionDetail(actionId) {
+    const data = actionData[actionId];
+    const target = document.getElementById('action-detail');
+    if (!data) {
+      target.innerHTML = '<div class="placeholder">← Click an action on the left to see what it does.</div>';
+      return;
+    }
+    let extra = '';
+    if (data.special === 'section-demo') {
+      extra = `
+        <div class="section-demo">
+          <strong style="font-size:0.85rem; color:var(--navy)">Pick which section to draft:</strong>
+          <div class="section-pills" id="section-pills">
+            <div class="section-pill" data-section="introduction">introduction</div>
+            <div class="section-pill" data-section="results">results</div>
+            <div class="section-pill" data-section="discussion">discussion</div>
+            <div class="section-pill" data-section="figure-legends">figure-legends</div>
+            <div class="section-pill" data-section="methods">methods</div>
+            <div class="section-pill" data-section="etc">etc (custom)</div>
+          </div>
+          <div class="section-output" id="section-output">
+            <em>Click a section above to see what the Drafter will do.</em>
+          </div>
+        </div>`;
+    }
+    target.innerHTML = `
+      <h5>${data.title} <span class="pill ${data.class === 'local-action' ? 'pill-local' : 'pill-cloud'}">${data.tool}</span></h5>
+      <p style="font-size:0.88rem">${data.desc}</p>
+      <div class="cmd">${data.cmd}</div>
+      ${data.when ? `<p style="font-size:0.82rem; color:var(--muted)"><strong>When:</strong> ${data.when}</p>` : ''}
+      ${extra}`;
+    // Mirror in the action select
+    const sel = document.getElementById('action-select-mirror');
+    if (sel) {
+      sel.innerHTML = `<option>${data.title} · ${data.tool}</option>`;
+    }
+    // Wire up section pills if rendered
+    if (data.special === 'section-demo') {
+      document.querySelectorAll('#section-pills .section-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+          document.querySelectorAll('#section-pills .section-pill').forEach(p => p.classList.remove('active'));
+          pill.classList.add('active');
+          renderSectionOutput(pill.dataset.section);
+        });
+      });
+    }
+  }
+
+  const sectionDescriptions = {
+    introduction: "<strong>Drafts the Introduction.</strong> Reads wiki_context.md and your user-drafts/introduction.md, then writes a new version that builds the story arc, cites real wiki papers, and ends with the gap your work fills.",
+    results: "<strong>Drafts the Results section.</strong> Reads figure-flow.md to know what each figure proves, then writes prose that walks through findings in narrative order — not in figure-number order.",
+    discussion: "<strong>Drafts the Discussion.</strong> Restates the contribution, situates it in the literature (using wiki citations only), addresses limitations, and ends with implications.",
+    "figure-legends": "<strong>Drafts figure legends.</strong> One panel-by-panel description per figure. Pulls statistics from data-needed.md when available.",
+    methods: "<strong>Drafts the Methods section.</strong> Pulls protocols and reagents from your user-drafts/methods.md or prior project Drafts/. Sectioned by experiment.",
+    etc: "<strong>Custom section.</strong> Opens a popup asking for the section name (e.g., 'acknowledgements', 'cover-letter', 'response-to-reviewers'). The Drafter will write that section."
+  };
+
+  function renderSectionOutput(section) {
+    const out = document.getElementById('section-output');
+    if (!out) return;
+    out.innerHTML = sectionDescriptions[section] || '<em>Unknown section.</em>';
+  }
+
+  document.querySelectorAll('.action-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.action-item').forEach(el => el.classList.remove('selected'));
+      item.classList.add('selected');
+      renderActionDetail(item.dataset.action);
+    });
+  });
+
+  // ─── Sidebar active link ───
+  const links = document.querySelectorAll('.sidebar nav a');
+  function setActiveLink() {
+    const scrollPos = window.scrollY + 100;
+    let active = null;
+    document.querySelectorAll('section').forEach(s => {
+      if (s.offsetTop <= scrollPos) active = s.id;
+    });
+    links.forEach(a => {
+      a.classList.toggle('active', a.getAttribute('href') === '#' + active);
+    });
+  }
+  window.addEventListener('scroll', setActiveLink, { passive: true });
+  setActiveLink();
+</script>
+</body>
+</html>

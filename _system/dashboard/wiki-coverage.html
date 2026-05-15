@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Wiki Coverage · LLM-Wiki</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:"Avenir Next","Segoe UI","Helvetica Neue",sans-serif;background:#f6f7f9;color:#1d2430;min-height:100vh;font-size:15px}
+    .page{max-width:900px;margin:0 auto;padding:2rem 1.5rem 4rem}
+    .back-link{display:inline-flex;align-items:center;gap:5px;font-size:.8rem;color:#667085;text-decoration:none;margin-bottom:1.8rem}
+    .back-link:hover{color:#0f766e}
+    .page-eyebrow{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#0f766e;margin-bottom:6px}
+    h1{font-size:1.75rem;font-weight:800;color:#0f172a;line-height:1.15}
+    .page-subtitle{font-size:.82rem;color:#667085;margin-top:6px;margin-bottom:2rem}
+    .stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:2rem}
+    .stat-box{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1rem 1.2rem}
+    .stat-box strong{display:block;font-size:2rem;font-weight:800;color:#0f766e;line-height:1}
+    .stat-box span{font-size:.75rem;color:#94a3b8;margin-top:4px;display:block}
+    .cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+    .cat-card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1.2rem 1.4rem;display:flex;flex-direction:column;gap:8px;transition:box-shadow .15s,border-color .15s}
+    .cat-card:hover{box-shadow:0 4px 18px rgba(0,0,0,.08);border-color:#0f766e}
+    .cat-name{font-size:.88rem;font-weight:700;color:#0f172a;word-break:break-word;line-height:1.3}
+    .cat-count{font-size:2.2rem;font-weight:800;color:#0f766e;line-height:1}
+    .cat-label{font-size:.68rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em}
+    .cat-bar-track{height:5px;background:#e2e8f0;border-radius:3px;margin-top:4px}
+    .cat-bar-fill{height:5px;background:#0f766e;border-radius:3px}
+    .empty{color:#94a3b8;text-align:center;padding:3rem;font-size:.9rem}
+  </style>
+</head>
+<body>
+<div class="page">
+  <a class="back-link" href="javascript:history.back()">← Back to Dashboard</a>
+  <p class="page-eyebrow">LLM-Wiki</p>
+  <h1>📊 Wiki Coverage</h1>
+  <p class="page-subtitle" id="page-subtitle">Loading...</p>
+  <div class="stats-row" id="stats-row"></div>
+  <div class="cat-grid" id="cat-grid"><p class="empty">Loading...</p></div>
+</div>
+<script src="./data.js"></script>
+<script>
+(function(){
+  function render(){
+    var D=window.DASHBOARD_DATA||{};
+    var cats=D.categories||[];
+    var meta=D.meta||{};
+    var totals=D.totals||{};
+    document.getElementById("page-subtitle").textContent=
+      "Generated "+(meta.generated_at||"—")+" · "+(meta.repo_path||"");
+    var total=cats.reduce(function(s,c){return s+c.page_count},0);
+    document.getElementById("stats-row").innerHTML=[
+      ["Wiki pages",total],
+      ["Active categories",cats.length],
+      ["PDF papers",totals.pdf_papers||0],
+      ["Source summaries",totals.source_pages||0]
+    ].map(function(x){return'<div class="stat-box"><strong>'+x[1]+'</strong><span>'+x[0]+'</span></div>'}).join("");
+    var grid=document.getElementById("cat-grid");
+    if(!cats.length){grid.innerHTML='<p class="empty">No wiki categories with content.</p>';return;}
+    var maxC=Math.max.apply(null,cats.map(function(c){return c.page_count}));
+    var sorted=cats.slice().sort(function(a,b){return b.page_count-a.page_count});
+    grid.innerHTML="";
+    sorted.forEach(function(cat){
+      var pct=maxC>0?Math.round(cat.page_count/maxC*100):0;
+      var d=document.createElement("div");d.className="cat-card";
+      d.innerHTML='<div class="cat-name">'+cat.name+'</div>'
+        +'<div class="cat-count">'+cat.page_count+'</div>'
+        +'<div class="cat-label">wiki pages</div>'
+        +'<div class="cat-bar-track"><div class="cat-bar-fill" style="width:'+pct+'%"></div></div>';
+      grid.appendChild(d);
+    });
+  }
+  if(window.DASHBOARD_DATA)render();
+  else window.addEventListener("load",render);
+})();
+</script>
+</body>
+</html>
